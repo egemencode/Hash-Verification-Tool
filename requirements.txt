@@ -1,0 +1,5 @@
+# Runtime dependencies
+# ----------------------------------------------------------------------
+# colorama is optional — the tool degrades to plain text if missing,
+# but it gives us reliable ANSI colour support on Windows terminals.
+colorama>=0.4.6

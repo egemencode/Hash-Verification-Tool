@@ -1,0 +1,44 @@
+@echo off
+REM ----------------------------------------------------------------------
+REM Build a single-file Windows executable for the Hash Verification Tool.
+REM
+REM Output:  dist\HashTool.exe   (~8 MB, no Python install required to run)
+REM
+REM Re-run this any time you change the source code.
+REM ----------------------------------------------------------------------
+
+setlocal
+
+echo.
+echo === [1/3] Checking PyInstaller ===
+python -m PyInstaller --version >nul 2>&1
+if errorlevel 1 (
+    echo PyInstaller not found. Installing...
+    python -m pip install --upgrade pyinstaller || goto :error
+)
+
+echo.
+echo === [2/3] Cleaning previous build artefacts ===
+if exist build rmdir /s /q build
+if exist dist  rmdir /s /q dist
+if exist HashTool.spec del /q HashTool.spec
+
+echo.
+echo === [3/3] Building HashTool.exe ===
+python -m PyInstaller ^
+    --onefile ^
+    --console ^
+    --clean ^
+    --name HashTool ^
+    main.py || goto :error
+
+echo.
+echo ============================================================
+echo  Build OK.  Run:  dist\HashTool.exe --help
+echo ============================================================
+exit /b 0
+
+:error
+echo.
+echo *** Build failed. Check the output above. ***
+exit /b 1
