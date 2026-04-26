@@ -14,7 +14,7 @@ from typing import Iterable
 
 # Algorithms we expose to the CLI. Mapping kept explicit so that an
 # unsupported value fails fast instead of relying on hashlib's full set.
-SUPPORTED_ALGORITHMS: tuple[str, ...] = ("md5", "sha1", "sha256")
+SUPPORTED_ALGORITHMS: tuple[str, ...] = ("md5", "sha1", "sha256", "sha512")
 DEFAULT_ALGORITHM: str = "sha256"
 
 # 64 KiB is a good default: large enough to amortise syscall overhead,

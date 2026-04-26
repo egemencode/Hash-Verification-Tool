@@ -556,19 +556,21 @@ class VerifyTab(_BaseTab):
 
         report_path = self.report_var.get().strip() or None
 
-        def work(emit: Callable[[_Message], None]):
+        def work(emit: Callable[[_Message], None]) -> dict:
             manifest = Manifest.load(manifest_path)
 
             def on_progress(event: ProgressEvent) -> None:
                 emit(_Message("progress", event))
 
             result = Verifier(manifest).verify(folder, on_progress=on_progress)
+            saved_to = None
             if report_path:
                 if report_path.lower().endswith(".csv"):
                     report_to_csv(result, report_path)
                 else:
                     report_to_json(result, report_path)
-            return result
+                saved_to = report_path
+            return {"result": result, "saved_to": saved_to}
 
         def show_progress(event: ProgressEvent) -> None:
             self.app.status_var.set(
@@ -584,7 +586,9 @@ class VerifyTab(_BaseTab):
             on_progress=show_progress,
         )
 
-    def _on_done(self, result) -> None:
+    def _on_done(self, payload: dict) -> None:
+        result = payload["result"]
+        saved_to = payload["saved_to"]
         summary = result.summary()
         self.summary.delete("1.0", "end")
         self.summary.insert("end", t("verify.log.folder", folder=result.folder))
@@ -594,8 +598,10 @@ class VerifyTab(_BaseTab):
             self.summary.insert("end", f"  {label:<18}: {summary[key]}\n")
         self.summary.insert(
             "end",
-            "\n" + (t("verify.result.clean") if result.is_clean else t("verify.result.dirty")),
+            "\n" + (t("verify.result.clean") if result.is_clean else t("verify.result.dirty")) + "\n",
         )
+        if saved_to:
+            self.summary.insert("end", t("verify.log.report_saved", path=saved_to))
 
         status_labels = {
             "unchanged": t("verify.summary.unchanged"),

@@ -18,9 +18,9 @@ if errorlevel 1 (
 )
 
 echo.
-echo === [2/3] Cleaning previous build artefacts ===
-if exist build rmdir /s /q build
-if exist dist  rmdir /s /q dist
+echo === [2/3] Cleaning previous CLI build artefacts ===
+if exist build\HashTool rmdir /s /q build\HashTool
+if exist dist\HashTool.exe del /q dist\HashTool.exe
 if exist HashTool.spec del /q HashTool.spec
 
 echo.

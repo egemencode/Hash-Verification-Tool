@@ -38,7 +38,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "about.body": (
             "Hash Verification Tool  v{version}\n\n"
             "Generate and verify file/folder hashes for integrity checks.\n"
-            "Supports MD5, SHA-1 and SHA-256 (default).\n\n"
+            "Supports MD5, SHA-1, SHA-256 (default) and SHA-512.\n\n"
             "CLI equivalent: main.py hash | verify | report"
         ),
 
@@ -100,6 +100,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "verify.summary.errors": "Errors",
         "verify.result.clean": "Integrity OK.",
         "verify.result.dirty": "Differences detected.",
+        "verify.log.report_saved": "Report saved: {path}\n",
 
         # --- Report tab -----------------------------------------------------
         "report.input": "Input JSON report:",
@@ -139,7 +140,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "about.body": (
             "Hash Doğrulama Aracı  v{version}\n\n"
             "Dosya/klasör bütünlük kontrolü için hash üretir ve doğrular.\n"
-            "MD5, SHA-1 ve SHA-256 (varsayılan) algoritmalarını destekler.\n\n"
+            "MD5, SHA-1, SHA-256 (varsayılan) ve SHA-512 algoritmalarını destekler.\n\n"
             "Komut satırı karşılığı: main.py hash | verify | report"
         ),
 
@@ -201,6 +202,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "verify.summary.errors": "Hatalar",
         "verify.result.clean": "Bütünlük sağlandı.",
         "verify.result.dirty": "Farklılıklar bulundu.",
+        "verify.log.report_saved": "Rapor kaydedildi: {path}\n",
 
         # --- Rapor Dönüştür sekmesi ----------------------------------------
         "report.input": "Girdi JSON rapor:",

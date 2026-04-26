@@ -31,7 +31,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 ## Features
 
 - Hash a single file or recursively hash every file under a folder
-- Algorithms: **MD5**, **SHA-1**, **SHA-256** (default: `sha256`)
+- Algorithms: **MD5**, **SHA-1**, **SHA-256** (default: `sha256`), **SHA-512**
 - Saves a structured **JSON manifest** with relative path, hash,
   algorithm, size and last-modified time per file
 - Re-verifies a folder against an existing manifest and classifies
@@ -106,12 +106,14 @@ standard library.
 
 ### Don't want to install Python?
 
-Grab the pre-built Windows executables from `dist/`:
+Pre-built single-file Windows executables are published on the
+**[GitHub Releases](../../releases)** page of this repository
+(not committed into the repo itself — binary files belong in Releases).
 
-| File                      | Purpose | Approx. size |
-|---------------------------|---------|--------------|
-| `dist/HashTool.exe`       | CLI     | ~8 MB        |
-| `dist/HashToolGUI.exe`    | GUI     | ~12 MB       |
+| File                   | Purpose | Approx. size |
+|------------------------|---------|--------------|
+| `HashTool.exe`         | CLI     | ~8 MB        |
+| `HashToolGUI.exe`      | GUI     | ~12 MB       |
 
 Both are single-file PyInstaller builds — no installer, no registry
 changes. Delete the file to uninstall.
@@ -254,16 +256,15 @@ root = "C:/example_folder"
 total = count_files(root)
 
 def on_progress(ev: ProgressEvent) -> None:
-    print(f"[{ev.processed}/{ev.total}] {ev.percent:5.1f}%  {ev.current_path}")
+    print(f"[{ev.done}/{ev.total}] {ev.percent:5.1f}%  {ev.path}")
 
 manifest = build_manifest_for_folder(root, algorithm="sha256",
                                      on_progress=on_progress)
 ```
 
-`ProgressEvent` carries `processed`, `total`, `current_path` and a
-computed `percent` property. The callback fires after every file
-(success *or* error) so the numerator and denominator always stay
-consistent.
+`ProgressEvent` carries `done`, `total`, `path` and a computed `percent`
+property. The callback fires after every file (success *or* error) so
+the numerator and denominator always stay consistent.
 
 ---
 
