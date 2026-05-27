@@ -7,6 +7,7 @@ REM
 REM Re-run this any time you change the source code.
 REM ----------------------------------------------------------------------
 
+cd /d "%~dp0"
 setlocal
 
 echo.
@@ -36,9 +37,11 @@ echo.
 echo ============================================================
 echo  Build OK.  Run:  dist\HashTool.exe --help
 echo ============================================================
+pause
 exit /b 0
 
 :error
 echo.
 echo *** Build failed. Check the output above. ***
+pause
 exit /b 1

@@ -31,6 +31,8 @@ from core.hash_utils import (
     ProgressEvent,
     compute_file_hash,
 )
+from core.history_manager import HistoryManager
+from core.local_verify import LocalVerifyStore
 from core.manifest_manager import (
     Manifest,
     build_manifest_for_file,
@@ -38,6 +40,7 @@ from core.manifest_manager import (
 )
 from core.reporter import convert_report, report_to_csv, report_to_json
 from core.verifier import Verifier
+from core.vt_client import VirusTotalClient
 from gui.i18n import (
     DEFAULT_LANGUAGE,
     SUPPORTED_LANGUAGES,
@@ -45,8 +48,17 @@ from gui.i18n import (
     set_language,
     t,
 )
+from gui.views.history_view import HistoryView
+from gui.views.settings_view import SettingsView
+from gui.views.trust_check_view import TrustCheckView
 from utils.logger import get_logger
-from utils.settings import load_settings, save_settings
+from utils.settings import (
+    AppSettings,
+    history_path,
+    load_settings,
+    save_settings,
+    trust_store_path,
+)
 
 log = get_logger("gui")
 
@@ -134,8 +146,15 @@ class HashToolApp(tk.Tk):
         self._settings = load_settings()
         set_language(self._settings.get("language", DEFAULT_LANGUAGE))
 
-        self.geometry("940x700")
-        self.minsize(780, 560)
+        # Typed settings + persistent stores (history, fingerprints).
+        self._app_settings = AppSettings.load()
+        self._history_manager = HistoryManager(
+            history_path(), limit=self._app_settings.history_limit
+        )
+        self._local_store = LocalVerifyStore(trust_store_path())
+
+        self.geometry("1020x760")
+        self.minsize(880, 600)
         self._apply_style()
 
         self._menubar: Optional[tk.Menu] = None
@@ -143,6 +162,11 @@ class HashToolApp(tk.Tk):
         self._statusbar: Optional[ttk.Frame] = None
         self.status_var = tk.StringVar(value=t("status.ready"))
         self._worker: Optional[_Worker] = None
+
+        # Trust-check related widgets that the menu / history rescan
+        # callbacks need to talk to.
+        self.trust_view: Optional[TrustCheckView] = None
+        self.history_view: Optional[HistoryView] = None
 
         self._render_ui()
 
@@ -198,15 +222,94 @@ class HashToolApp(tk.Tk):
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True, padx=10, pady=(10, 0))
 
-        self.hash_tab = HashTab(nb, self)
-        self.verify_tab = VerifyTab(nb, self)
-        self.report_tab = ReportTab(nb, self)
+        # --- New friendly views --------------------------------------
+        self.trust_view = TrustCheckView(
+            nb,
+            get_vt_client=self._make_vt_client,
+            local_store=self._local_store,
+            history_manager=self._history_manager,
+            set_status=self.status_var.set,
+            on_scan_recorded=self._refresh_history,
+        )
+        self.history_view = HistoryView(
+            nb,
+            self._history_manager,
+            on_rescan_request=self._rescan_from_history,
+        )
+        self.settings_view = SettingsView(
+            nb,
+            self._app_settings,
+            on_settings_changed=self._on_settings_changed,
+        )
 
-        nb.add(self.hash_tab,   text=t("tab.hash"))
-        nb.add(self.verify_tab, text=t("tab.verify"))
-        nb.add(self.report_tab, text=t("tab.report"))
+        nb.add(self.trust_view,    text=t("tab.trust"))
+        nb.add(self.history_view,  text=t("tab.history"))
+        nb.add(self.settings_view, text=t("tab.settings_tab"))
+
+        # --- Legacy power-user views, grouped under one "Advanced" tab
+        advanced_holder = ttk.Frame(nb, padding=0)
+        advanced_holder.pack(fill="both", expand=True)
+        advanced_nb = ttk.Notebook(advanced_holder)
+        advanced_nb.pack(fill="both", expand=True, padx=0, pady=0)
+
+        self.hash_tab = HashTab(advanced_nb, self)
+        self.verify_tab = VerifyTab(advanced_nb, self)
+        self.report_tab = ReportTab(advanced_nb, self)
+        advanced_nb.add(self.hash_tab,   text=t("tab.hash"))
+        advanced_nb.add(self.verify_tab, text=t("tab.verify"))
+        advanced_nb.add(self.report_tab, text=t("tab.report"))
+        nb.add(advanced_holder, text=t("tab.advanced"))
 
         self.notebook = nb
+
+    # ------------------------------------------------------------------
+    # Trust-check plumbing
+    # ------------------------------------------------------------------
+    def _make_vt_client(self) -> VirusTotalClient:
+        """Build a VirusTotal client using the latest saved API key."""
+        return VirusTotalClient(
+            api_key=self._app_settings.virustotal_api_key,
+            timeout=15.0,
+        )
+
+    def _refresh_history(self) -> None:
+        if self.history_view is not None:
+            self.history_view.refresh()
+
+    def _rescan_from_history(self, path: str) -> None:
+        if self.trust_view is None:
+            return
+        # Jump back to the Trust tab and prefill the file before triggering
+        # a fresh scan. Keeps the workflow obvious for double-clicks.
+        try:
+            self.notebook.select(self.trust_view)  # type: ignore[union-attr]
+        except (tk.TclError, AttributeError):
+            pass
+        self.trust_view._set_selected_path(path)  # noqa: SLF001 — same package
+        self.trust_view._on_scan()                # noqa: SLF001
+
+    def _on_settings_changed(self, new_settings: AppSettings) -> None:
+        self._app_settings = new_settings
+        # Persist the legacy raw-dict language slot too so the menu
+        # bar's prefix-aware rebuild keeps working.
+        self._settings["language"] = new_settings.language
+        save_settings(self._settings)
+        # Refresh the history limit on the live manager.
+        self._history_manager = HistoryManager(
+            history_path(), limit=new_settings.history_limit
+        )
+        if self.history_view is not None:
+            self.history_view._history = self._history_manager  # noqa: SLF001
+            self.history_view.refresh()
+        if self.trust_view is not None:
+            self.trust_view._history = self._history_manager  # noqa: SLF001
+
+        # If the language was changed via the Settings tab, rebuild the
+        # chrome live — otherwise the new locale would only kick in on
+        # the next launch and the "Kaydet hemen uygulanır" copy would
+        # be a lie.
+        if new_settings.language != get_language():
+            self._switch_language(new_settings.language)
 
     def _build_statusbar(self) -> None:
         bar = ttk.Frame(self)
@@ -248,6 +351,11 @@ class HashToolApp(tk.Tk):
         if self.notebook is not None:
             self.notebook.destroy()
             self.notebook = None
+            # New-style views are children of the notebook — when the
+            # notebook is destroyed Tk frees them too. Drop our refs so
+            # we don't accidentally talk to dead widgets.
+            self.trust_view = None
+            self.history_view = None
         if self._statusbar is not None:
             self._statusbar.destroy()
             self._statusbar = None

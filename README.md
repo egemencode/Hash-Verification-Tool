@@ -1,30 +1,40 @@
 # Hash Verification Tool
 
-A small, dependency-light Python tool for generating and verifying
-cryptographic hashes of individual files or whole folder trees.
-Ships with a **command-line interface**, a **Tkinter GUI** and
-pre-built **single-file Windows executables** — designed for integrity
-checks, backup validation, basic forensic workflows and as a clean
-reference project for portfolio / learning purposes.
+A small, dependency-light Python tool for checking how trustworthy a
+file is. Starting in v1.2 the main surface is a beginner-friendly
+**"Güven Kontrolü"** screen that hashes a file, looks the hash up on
+VirusTotal, checks the Windows digital signature, compares against a
+local fingerprint and shows a plain-language risk summary — without
+ever uploading the file. The original CLI and the **Advanced** tab
+keep all of v1.1's hash / verify / report power.
 
-> **Status:** v1.1.0 — stable. CLI + GUI, live progress reporting,
-> bilingual UI (Türkçe / English), 23 passing unit tests.
+> **Status:** v1.2.0 — stable. New trust-check workflow, history,
+> settings tab. 37 passing unit tests.
+
+![Güven Kontrolü ana ekranı](docs/screenshots/main.png)
 
 ---
 
-## What's new in v1.1.0
+## What's new in v1.2.0
 
-- **Live progress reporting** during folder hashing and verification
-  (determinate progress bar in the GUI, per-file debug log in the CLI).
-- **GUI language toggle** under *Settings → Language* — switch between
-  Türkçe and English without restarting. Preference is persisted next
-  to the executable.
-- **Windows installers**: `dist/HashTool.exe` (CLI) and
-  `dist/HashToolGUI.exe` (GUI) — no Python install required to run.
-- New `ProgressEvent` callback hook on the core API so any future
-  front-end can show progress too.
+- **Güven Kontrolü tab** — pick one file, get a single Düşük / Orta /
+  Yüksek risk badge plus a Turkish-first explanation.
+- **VirusTotal hash lookup** (no file upload) — paste your free API key
+  in the *Ayarlar* tab and the app queries `files/{sha256}` for you.
+- **Authenticode signature check** on Windows via PowerShell — surfaces
+  signer name without bundling a native PE parser.
+- **Local fingerprint book** — remember a file's hash today, compare it
+  later to see if it has been tampered with.
+- **Risk engine + smart summary** — combines VT + signature + local
+  results into one explainable score with auditable factor list.
+- **Scan history** — last N runs persisted as JSON, double-click to
+  re-scan.
+- **JSON / HTML reports** — single-file shareable trust report.
 
-See [CHANGELOG.md](CHANGELOG.md) for the full list.
+The original *Advanced* tab still exposes Hash / Verify / Report and
+all CLI subcommands (`hash`, `verify`, `report`) work unchanged.
+
+See [CHANGELOG.md](CHANGELOG.md) for v1.1 history.
 
 ---
 
@@ -53,29 +63,39 @@ See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 ```
 Hash Verification Tool/
-├── main.py                  # CLI entry point (argparse)
-├── gui_main.py              # GUI entry point (thin wrapper)
+├── main.py                       # CLI entry point (argparse)
+├── gui_main.py                   # GUI entry point (thin wrapper)
 ├── core/
 │   ├── __init__.py
-│   ├── hash_utils.py        # Streamed hashing + ProgressEvent + count_files
-│   ├── manifest_manager.py  # Manifest dataclass + JSON I/O
-│   ├── verifier.py          # Compare live folder vs manifest
-│   └── reporter.py          # Console / JSON / CSV reporting
+│   ├── hash_utils.py             # Streamed hashing + ProgressEvent
+│   ├── manifest_manager.py       # Folder manifest dataclass + JSON I/O
+│   ├── verifier.py               # Compare live folder vs manifest
+│   ├── reporter.py               # Console / JSON / CSV folder reports
+│   ├── file_info.py              # Human-readable single-file metadata
+│   ├── vt_client.py              # VirusTotal v3 hash lookup (no upload)
+│   ├── signature_checker.py      # Windows Authenticode via PowerShell
+│   ├── local_verify.py           # "Did this file change?" fingerprint store
+│   ├── risk_engine.py            # Düşük / Orta / Yüksek risk scoring
+│   ├── smart_summary.py          # Plain-Turkish summary builder
+│   ├── history_manager.py        # Last-N-scans JSON store
+│   ├── trust_report.py           # JSON + HTML trust report export
+│   └── trust_pipeline.py         # Orchestrates the trust-check flow
 ├── gui/
 │   ├── __init__.py
-│   ├── app.py               # Tkinter app (threaded worker + queue)
-│   └── i18n.py              # Translation dictionary (TR / EN)
+│   ├── app.py                    # Tk root + tab wiring + thread plumbing
+│   ├── i18n.py                   # TR / EN translation table
+│   └── views/
+│       ├── trust_check_view.py   # Main beginner-friendly screen
+│       ├── history_view.py       # Scan history tab
+│       └── settings_view.py      # VirusTotal / history / language tab
 ├── utils/
 │   ├── __init__.py
-│   ├── logger.py            # Logging helper (GUI-safe)
-│   └── settings.py          # JSON-backed settings store
-├── tests/
-│   ├── test_hash_utils.py
-│   ├── test_manifest_manager.py
-│   └── test_verifier.py
-├── demo.py                  # End-to-end demo scenario
-├── build_exe.bat            # Build dist/HashTool.exe (CLI)
-├── build_gui_exe.bat        # Build dist/HashToolGUI.exe (GUI)
+│   ├── logger.py                 # Logging helper (GUI-safe)
+│   └── settings.py               # JSON-backed settings + AppSettings
+├── tests/                        # 37 unit tests, stdlib only
+├── demo.py                       # End-to-end legacy demo
+├── build_exe.bat                 # Build dist/HashTool.exe (CLI)
+├── build_gui_exe.bat             # Build dist/HashToolGUI.exe (GUI)
 ├── requirements.txt
 ├── CHANGELOG.md
 ├── LICENSE
@@ -97,12 +117,14 @@ cd "Hash Verification Tool"
 python -m venv .venv
 .venv\Scripts\activate
 
-# 3. Install runtime dependencies (just colorama)
+# 3. Install runtime dependencies (all optional but recommended)
 pip install -r requirements.txt
 ```
 
-That's it — everything else (Tkinter, hashlib, json, csv) is in the
-standard library.
+Every package in `requirements.txt` is optional — the app falls back
+to stdlib if any are missing. Installing them gives you `requests` for
+faster VirusTotal calls, `windnd` for drag-and-drop and `colorama` for
+coloured CLI output.
 
 ### Don't want to install Python?
 
@@ -120,26 +142,61 @@ changes. Delete the file to uninstall.
 
 ---
 
-## Usage — GUI
+## Running the GUI
+
+### Option A — From source (Python)
 
 ```powershell
+cd "Hash Verification Tool"
+pip install -r requirements.txt   # one-time, optional but recommended
 python gui_main.py
-# or double-click dist\HashToolGUI.exe
 ```
 
-The GUI has three tabs that mirror the CLI:
+### Option B — From the pre-built EXE
 
-1. **Hash** — pick a file or folder, choose an algorithm, save a
-   manifest. A determinate progress bar + status line
-   (`Hashing [42/500]  path/to/file`) shows live progress on big folders.
-2. **Verify** — pick a folder and a manifest, see every file classified
-   by status with colour coding (green = unchanged, orange = modified,
-   blue = new, red = missing, grey = error).
-3. **Report** — convert a saved JSON report to CSV or vice versa.
+After running `build_gui_exe.bat` (or downloading a release):
 
-Switch the UI language on the fly from **Settings → Language** (Türkçe
-or English). The choice is saved to `hashtool_settings.json` next to
-the script / exe and restored on the next launch.
+```powershell
+dist\HashToolGUI.exe
+```
+
+You can also double-click `dist\HashToolGUI.exe` from File Explorer.
+The EXE is self-contained — no Python install required on the target
+machine. Settings and history are written next to the EXE
+(`hashtool_settings.json`, `data\history.json`, `data\known_files.json`).
+
+### First-run setup (both options)
+
+1. Switch to the **Ayarlar** tab.
+2. Get a free API key at <https://www.virustotal.com/gui/my-apikey>
+   and paste it into the *API Anahtarı* field.
+3. Click **Anahtarı Test Et** to confirm it works, then **Kaydet**.
+
+You can use the app without a VirusTotal key — you just won't get the
+malicious / suspicious engine counts; everything else (hash, signature,
+local fingerprint) still works.
+
+### How to scan a file
+
+1. **Güven Kontrolü** tab → click **Dosya Seç…** (or drag a file onto
+   the window if `windnd` is installed).
+2. Click **Taramayı Başlat**.
+3. Read the risk badge (Düşük / Orta / Yüksek / Bilinmiyor) and the
+   short summary at the top.
+4. Click **Teknik Detaylar → Göster ▾** if you want the full hashes,
+   raw VirusTotal stats and signature details.
+5. Optional next steps:
+   - **Parmak İzini Kaydet** — remember this file's SHA-256 so the
+     next scan will tell you if the file changed.
+   - **Raporu Kaydet (JSON / HTML)** — export a shareable report.
+
+The other top-level tabs:
+
+- **Geçmiş** — last N scans, double-click a row to re-run the check.
+- **Ayarlar** — VirusTotal key, auto-query toggle, history limit, UI
+  language.
+- **Gelişmiş** — the original v1.1 Hash / Verify / Report tools for
+  bulk folder integrity checks.
 
 ---
 
@@ -295,13 +352,24 @@ deliberately the safe choice.
 
 ## Building the executables yourself
 
-```powershell
-# CLI
-build_exe.bat           # produces dist\HashTool.exe
+Run the matching `.bat` file from the project root:
 
-# GUI (no console window)
-build_gui_exe.bat       # produces dist\HashToolGUI.exe
+```powershell
+# GUI (no console window) — produces dist\HashToolGUI.exe (~15 MB)
+build_gui_exe.bat
+
+# CLI (legacy advanced tools) — produces dist\HashTool.exe (~8 MB)
+build_exe.bat
 ```
+
+Both scripts:
+- install PyInstaller on first run if it is missing,
+- clean previous build artefacts,
+- emit a single-file EXE under `dist\`.
+
+After building the GUI, double-click `dist\HashToolGUI.exe` to launch
+the app. Delete the EXE to uninstall — there is no installer and no
+registry footprint.
 
 Both scripts install PyInstaller on first run if it is missing and
 clean up previous build artefacts before each build.

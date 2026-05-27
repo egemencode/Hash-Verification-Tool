@@ -1,5 +1,19 @@
-# Runtime dependencies
+# Hash Verification Tool — runtime dependencies
 # ----------------------------------------------------------------------
-# colorama is optional — the tool degrades to plain text if missing,
-# but it gives us reliable ANSI colour support on Windows terminals.
+# Everything below is OPTIONAL. The tool falls back to the standard
+# library if a package is missing, so it always runs. Installing the
+# full set just gives you a nicer experience:
+#
+#   requests  : VirusTotal lookups go through requests when available;
+#               otherwise we use urllib from the stdlib (slower TLS).
+#   windnd    : enables drag-and-drop on the Güven Kontrolü tab.
+#               Without it the "Dosya Seç…" button still works.
+#   colorama  : ANSI colour output for the legacy CLI (advanced tab /
+#               main.py). The GUI does not use it.
+#
+# If you are building an EXE with PyInstaller install all three so the
+# bundle ships the best UX out of the box.
+# ----------------------------------------------------------------------
+requests>=2.31.0
+windnd>=1.0.7
 colorama>=0.4.6

@@ -1,3 +1,3 @@
-"""Core hashing, manifest and verification logic."""
+"""Core hashing, manifest, verification and file-trust logic."""
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"

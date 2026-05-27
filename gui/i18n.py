@@ -37,12 +37,18 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "about.title": "About Hash Verification Tool",
         "about.body": (
             "Hash Verification Tool  v{version}\n\n"
-            "Generate and verify file/folder hashes for integrity checks.\n"
-            "Supports MD5, SHA-1, SHA-256 (default) and SHA-512.\n\n"
+            "Friendly file-trust check: hashes, VirusTotal lookup,\n"
+            "digital signature, local fingerprint and a plain-language\n"
+            "risk summary — all without uploading the file anywhere.\n\n"
+            "Advanced tab still exposes the original hash / verify / report tools.\n"
             "CLI equivalent: main.py hash | verify | report"
         ),
 
         # --- Notebook tab captions -----------------------------------------
+        "tab.trust": "  Trust Check  ",
+        "tab.history": "  History  ",
+        "tab.settings_tab": "  Settings  ",
+        "tab.advanced": "  Advanced  ",
         "tab.hash": "  1. Hash Generate  ",
         "tab.verify": "  2. Verify  ",
         "tab.report": "  3. Report Convert  ",
@@ -139,12 +145,19 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "about.title": "Hash Doğrulama Aracı Hakkında",
         "about.body": (
             "Hash Doğrulama Aracı  v{version}\n\n"
-            "Dosya/klasör bütünlük kontrolü için hash üretir ve doğrular.\n"
-            "MD5, SHA-1, SHA-256 (varsayılan) ve SHA-512 algoritmalarını destekler.\n\n"
+            "Acemi dostu dosya güven kontrolü: hash, VirusTotal hash lookup,\n"
+            "dijital imza, yerel parmak izi karşılaştırması ve sade Türkçe\n"
+            "risk özeti. Dosya hiçbir yere yüklenmez.\n\n"
+            "Gelişmiş sekmesi orijinal hash / doğrula / rapor araçlarını\n"
+            "olduğu gibi içerir.\n"
             "Komut satırı karşılığı: main.py hash | verify | report"
         ),
 
         # --- Sekme başlıkları ----------------------------------------------
+        "tab.trust": "  Güven Kontrolü  ",
+        "tab.history": "  Geçmiş  ",
+        "tab.settings_tab": "  Ayarlar  ",
+        "tab.advanced": "  Gelişmiş  ",
         "tab.hash": "  1. Hash Üret  ",
         "tab.verify": "  2. Doğrula  ",
         "tab.report": "  3. Rapor Dönüştür  ",
