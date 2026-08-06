@@ -49,7 +49,22 @@ def build_summary(
     if vt is not None:
         if vt.status == VTStatus.OK:
             m, s = vt.stats.malicious, vt.stats.suspicious
-            if m == 0 and s == 0:
+            # Base the wording on engines that actually produced a verdict.
+            # A result made up entirely of timeouts must never be narrated as
+            # "no engine flagged it" — nothing was analysed at all.
+            if vt.analysing_engines <= 0 or vt.stats_malformed:
+                bullets.append(
+                    "VirusTotal sonucu alındı ancak kullanılabilir motor "
+                    "analizi bulunamadı; bu bir güven işareti sayılamaz."
+                )
+            elif m == 0 and s == 0 and not vt.is_fresh:
+                # Never let an undatable/old "0 detections" read as reassurance.
+                when = "çok eski" if vt.is_stale else "tarihi belirsiz"
+                bullets.append(
+                    f"VirusTotal'da zararlı işareti yok, ancak bu sonuç {when}; "
+                    "dosyanın şu anki hâli için güncel bir kanıt sayılmaz."
+                )
+            elif m == 0 and s == 0:
                 bullets.append(
                     "VirusTotal'daki güvenlik motorlarından zararlı veya "
                     "şüpheli işareti gelmedi."
@@ -85,16 +100,29 @@ def build_summary(
     if sig is not None:
         if sig.status == SignatureStatus.SIGNED_VALID:
             if sig.signer:
-                bullets.append(f"Dosya {sig.signer} tarafından dijital olarak imzalanmış.")
+                bullets.append(
+                    f"Dosya {sig.signer} tarafından imzalanmış (imza geçerli); "
+                    "bu, dosyanın zararsız olduğunu kanıtlamaz."
+                )
             else:
-                bullets.append("Dosyanın geçerli bir dijital imzası var.")
-        elif sig.status == SignatureStatus.SIGNED_INVALID:
+                bullets.append(
+                    "Dosyanın geçerli bir dijital imzası var; bu, zararsız "
+                    "olduğunu kanıtlamaz."
+                )
+        elif sig.status == SignatureStatus.HASH_MISMATCH:
             bullets.append(
-                "Dosyanın bir dijital imzası var ama doğrulanamadı — "
-                "imza bozulmuş veya sertifika güvenilir değil."
+                "Dikkat: dosyanın imzası var ama içeriği imzalandıktan sonra "
+                "değişmiş görünüyor (hash uyuşmuyor)."
+            )
+        elif sig.status == SignatureStatus.UNTRUSTED:
+            bullets.append(
+                "Dosyanın imzası var ama sertifika zinciri doğrulanamadı — "
+                "imza güvenilir kabul edilemez."
             )
         elif sig.status == SignatureStatus.UNSIGNED:
             bullets.append("Dosyanın dijital imzası yok.")
+        elif sig.status == SignatureStatus.NOT_APPLICABLE:
+            bullets.append("Bu dosya türü dijital imza taşıyamıyor.")
 
     # --- Local fingerprint sentence ----------------------------------
     if local is not None:

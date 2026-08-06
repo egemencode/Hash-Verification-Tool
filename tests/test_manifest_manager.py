@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tests.support import DiagnosticTempDir
 from core.manifest_manager import (  # noqa: E402
     FileEntry,
     Manifest,
@@ -20,7 +21,7 @@ from core.manifest_manager import (  # noqa: E402
 
 class ManifestRoundtripTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = DiagnosticTempDir()
         self.root = Path(self.tmp.name)
         (self.root / "a.txt").write_text("alpha")
         (self.root / "sub").mkdir()
@@ -30,7 +31,7 @@ class ManifestRoundtripTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_build_and_save_roundtrip(self) -> None:
-        manifest = build_manifest_for_folder(self.root, algorithm="sha256")
+        manifest = build_manifest_for_folder(self.root, algorithm="sha256").manifest
         self.assertEqual(len(manifest.entries), 2)
 
         target = self.root / "manifest.json"
@@ -44,7 +45,7 @@ class ManifestRoundtripTests(unittest.TestCase):
             self.assertEqual(loaded.entries[key].hash, original.hash)
 
     def test_save_creates_parent_directories(self) -> None:
-        manifest = build_manifest_for_folder(self.root)
+        manifest = build_manifest_for_folder(self.root).manifest
         nested_target = self.root / "out" / "nested" / "manifest.json"
         manifest.save(nested_target)
         self.assertTrue(nested_target.exists())

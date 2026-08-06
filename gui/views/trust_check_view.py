@@ -18,13 +18,25 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable, Optional
 
-from core.local_verify import LocalVerifyStatus, LocalVerifyStore
+from core.baseline import (
+    DECISION_PROMPTS,
+    BaselineDecision,
+    evaluate_baseline_request,
+)
+from core.hash_utils import HashError, compute_file_hashes
+from core.local_verify import LocalStoreError, LocalVerifyStatus, LocalVerifyStore
+from core.scan_controller import ScanCancelled, ScanController
 from core.risk_engine import RiskLevel
 from core.signature_checker import SignatureStatus
-from core.trust_pipeline import TrustResult, run_trust_check
+from core.trust_pipeline import (
+    PRIVACY_NOTICE,
+    TrustResult,
+    resolve_online_checks,
+    run_trust_check,
+)
 from core.trust_report import TrustReportError, export_html, export_json
 from core.vt_client import VirusTotalClient, VTStatus
-from core.history_manager import HistoryManager, make_entry
+from core.history_manager import HistoryManager, HistoryStoreError, make_entry
 from utils.logger import get_logger
 
 log = get_logger("gui.trust")
@@ -51,17 +63,28 @@ class TrustCheckView(ttk.Frame):
         history_manager: HistoryManager,
         set_status: Callable[[str], None],
         on_scan_recorded: Optional[Callable[[], None]] = None,
+        # Reads the *live* preference each scan, so toggling it in Settings
+        # takes effect immediately without rebuilding the view.
+        get_online_enabled: Callable[[], bool] = lambda: False,
     ) -> None:
         super().__init__(parent, padding=14)
         self._get_vt_client = get_vt_client
+        self._get_online_enabled = get_online_enabled
         self._local_store = local_store
         self._history = history_manager
-        self._set_status = set_status
+        self._push_status = set_status
         self._on_scan_recorded = on_scan_recorded
 
+        # Single source of truth for "which file is this result about".
+        self._controller = ScanController()
         self._selected_path: Optional[str] = None
         self._last_result: Optional[TrustResult] = None
         self._busy = False
+        # Handle of the single scheduled poll callback (None when none is
+        # pending). Tk keeps running an after() script after the widget is
+        # destroyed unless it is explicitly cancelled.
+        self._poll_after_id: Optional[str] = None
+        self._status_text = ""
         self._msg_queue: "queue.Queue[tuple[str, Any]]" = queue.Queue()
 
         self._build()
@@ -109,6 +132,22 @@ class TrustCheckView(ttk.Frame):
         self.scan_button.pack(side="left", padx=(8, 0))
         self.scan_button.state(["disabled"])
 
+        # Privacy state must be visible on the main screen, not buried in
+        # Settings: the user should always know whether anything leaves the
+        # machine before they start a scan.
+        self.online_state_var = tk.StringVar()
+        ttk.Label(
+            btns, textvariable=self.online_state_var, foreground="#444"
+        ).pack(side="left", padx=(16, 0))
+        # NOTE: `frame` is laid out with grid; adding a packed child here
+        # raises TclError and the whole app fails to open. One geometry
+        # manager per container.
+        ttk.Label(
+            frame, text=PRIVACY_NOTICE, foreground="#666", wraplength=680,
+            justify="left",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self._refresh_online_state()
+
         # Lightweight drag-and-drop via the windnd library if installed.
         # No hard dependency: if windnd isn't there we silently skip.
         try:
@@ -123,6 +162,20 @@ class TrustCheckView(ttk.Frame):
             windnd.hook_dropfiles(self, func=_on_drop)
         except Exception:
             pass
+
+    def _refresh_online_state(self) -> None:
+        """Show whether this scan will contact VirusTotal."""
+        enabled = False
+        try:
+            enabled = resolve_online_checks(
+                autoquery=self._get_online_enabled(),
+                has_key=self._get_vt_client().has_key,
+            )
+        except Exception:  # never let a settings problem break the screen
+            enabled = False
+        self.online_state_var.set(
+            "Çevrimiçi kontrol: Açık" if enabled else "Çevrimiçi kontrol: Kapalı"
+        )
 
     # --- Summary ------------------------------------------------------
     def _build_summary_panel(self, row: int) -> None:
@@ -346,10 +399,16 @@ class TrustCheckView(ttk.Frame):
                 f"Bu yol bir dosyaya işaret etmiyor:\n{path}",
             )
             return
-        self._selected_path = str(p.resolve())
+        # The controller owns "which file are we talking about"; selecting a
+        # new one invalidates any in-flight scan and the previous result.
+        self._controller.select(str(p))
+        self._selected_path = self._controller.selected_path
+        self._last_result = None
         self.file_label_var.set(
             f"Seçili dosya: {p.name}\n{p.resolve()}"
         )
+        self._clear_summary()
+        self._clear_technical_tabs()
         self.scan_button.state(["!disabled"])
         # Disable result-dependent buttons until a fresh scan completes
         # for this path. (Re-scan is enabled via the main scan button.)
@@ -360,20 +419,28 @@ class TrustCheckView(ttk.Frame):
     # Scan flow (threaded)
     # ==================================================================
     def _on_scan(self) -> None:
-        if self._busy or not self._selected_path:
-            return
-        path = self._selected_path
+        session = self._controller.begin_scan()
+        if session is None:
+            return  # nothing selected, already busy, or shutting down
         self._set_busy(True)
-        self._set_status(f"Tarama başlatılıyor — {Path(path).name}")
+        self._set_status(f"Tarama başlatılıyor — {Path(session.path).name}")
+        # Clear the *whole* previous result, not just the summary: a failed
+        # re-scan of the same file must not leave its old hashes, VT counts,
+        # signature or local-record rows visible.
+        self._last_result = None
         self._clear_summary()
+        self._clear_technical_tabs()
 
         worker = threading.Thread(
-            target=self._scan_worker, args=(path,), daemon=True
+            target=self._scan_worker, args=(session,), daemon=True
         )
+        self._worker_thread = worker
         worker.start()
-        self.after(120, self._poll_queue)
+        # One scheduler only — _poll_queue reschedules itself while busy.
+        self._schedule_poll()
 
-    def _scan_worker(self, path: str) -> None:
+    def _scan_worker(self, session) -> None:
+        path = session.path
         try:
             client = self._get_vt_client()
             result = run_trust_check(
@@ -381,44 +448,206 @@ class TrustCheckView(ttk.Frame):
                 vt_client=client,
                 local_store=self._local_store,
                 check_signature_flag=True,
-                query_virustotal=client.has_key,
-                on_progress=lambda step: self._msg_queue.put(("status", step)),
+                # The saved privacy preference decides this, not merely
+                # whether a key happens to be configured.
+                query_virustotal=resolve_online_checks(
+                    autoquery=self._get_online_enabled(),
+                    has_key=client.has_key,
+                ),
+                # Every queued message carries its session, so a late worker
+                # cannot drive the status line of a newer scan.
+                on_progress=lambda step: self._msg_queue.put(
+                    ("status", (session, step))
+                ),
+                cancel_check=session.raise_if_cancelled,
             )
-            self._msg_queue.put(("done", result))
+            self._msg_queue.put(("done", (session, result)))
+        except ScanCancelled:
+            self._msg_queue.put(("cancelled", (session, None)))
         except Exception as exc:
             log.exception("trust scan failed")
-            self._msg_queue.put(("error", exc))
+            self._msg_queue.put(("error", (session, exc)))
 
     def _poll_queue(self) -> None:
-        drained = 0
+        """
+        Drain the worker queue.
+
+        Every branch asks the controller first: a message from a superseded
+        session is **discarded completely** — it may not clear busy, touch the
+        status line, change the buttons, or stop the loop. Stopping early was
+        the defect: a late "cancelled" from an abandoned scan left the live
+        scan's UI unmanaged and its own result stranded in the queue.
+        """
+        # NOTE: this method does NOT clear _poll_after_id. Only the scheduled
+        # tick (_on_poll_tick) may, because it is the one that has actually
+        # fired. Clearing it here orphaned the pending handle whenever a
+        # caller drained the queue directly, and the orphan then ran against a
+        # destroyed widget.
+        terminal_handled = False
         try:
             while True:
                 kind, payload = self._msg_queue.get_nowait()
-                drained += 1
+
                 if kind == "status":
-                    self._set_status(str(payload))
+                    session, step = payload
+                    if self._controller.is_current(session):
+                        self._set_status(str(step))
+                    continue
+
+                session, data = payload
+                if kind == "cancelled":
+                    if not self._controller.deliver_cancelled(session):
+                        continue        # stale: ignore entirely
+                    self._set_status("İptal edildi.")
+                    self._show_terminal_failure(
+                        "Tarama iptal edildi",
+                        "Tarama siz iptal ettiğiniz için tamamlanmadı.",
+                    )
+                    terminal_handled = True
                 elif kind == "done":
-                    self._on_done(payload)
-                    self._set_busy(False)
-                    return
+                    if not self._controller.deliver_result(session, data):
+                        continue
+                    self._on_done(data)
+                    terminal_handled = True
                 elif kind == "error":
-                    self._set_busy(False)
-                    messagebox.showerror("Tarama Hatası", str(payload))
-                    self._set_status("Hata.")
-                    return
+                    if not self._controller.deliver_error(session, data):
+                        continue
+                    self._last_result = None
+                    self._show_terminal_failure(
+                        "Tarama tamamlanamadı",
+                        f"Dosya okunamadı veya kontrol tamamlanamadı: {data}",
+                    )
+                    self._set_status("Tarama tamamlanamadı.")
+                    messagebox.showerror("Tarama Hatası", str(data))
+                    terminal_handled = True
         except queue.Empty:
             pass
 
-        if self._busy:
-            self.after(120, self._poll_queue)
+        if terminal_handled:
+            self._set_busy(False)
+
+        # Exactly one scheduler: never stack a second polling chain.
+        if self._controller.is_busy:
+            self._schedule_poll()
+
+    def _on_poll_tick(self) -> None:
+        """The scheduled entry point — the only place the handle is cleared."""
+        self._poll_after_id = None
+        self._poll_queue()
+
+    def _schedule_poll(self) -> None:
+        if self._poll_after_id is None:
+            self._poll_after_id = self.after(120, self._on_poll_tick)
+
+    def _set_status(self, text: str) -> None:
+        """Update the status bar and remember what it says (for tests)."""
+        self._status_text = text
+        self._push_status(text)
+
+    @property
+    def status_text(self) -> str:
+        return self._status_text
+
+    def _cancel_scheduled_poll(self) -> None:
+        """Drop a pending after() callback so it cannot fire on dead widgets."""
+        if self._poll_after_id is not None:
+            try:
+                self.after_cancel(self._poll_after_id)
+            except tk.TclError:  # pragma: no cover - already torn down
+                pass
+            self._poll_after_id = None
+
+    def _show_terminal_failure(self, headline: str, detail: str) -> None:
+        """
+        Replace the in-progress card with an explicit end state.
+
+        A failed or cancelled scan must not leave the "scanning, please
+        wait…" text or the previous file's evidence on screen.
+        """
+        self._clear_summary()
+        self._clear_technical_tabs()
+        self.headline_var.set(headline)
+        self.advice_var.set(detail + "  Sorunu giderip tekrar deneyin.")
+
+    def rescan_path(self, path: str) -> bool:
+        """
+        Scan *path* specifically (e.g. a history row).
+
+        Returns False — having started nothing and cleared the stale result —
+        when the file no longer exists. The caller must not fall back to the
+        previous selection: that would attach the history entry's identity to
+        a completely different file.
+        """
+        if not Path(path).is_file():
+            self._controller.rescan(path)      # moves to ERROR, clears state
+            self._selected_path = None
+            self._last_result = None
+            self._clear_summary()
+            self._clear_technical_tabs()
+            self.file_label_var.set("Seçili dosya yok — kayıttaki dosya bulunamadı.")
+            self.scan_button.state(["disabled"])
+            for btn in (self.export_json_btn, self.export_html_btn,
+                        self.remember_btn, self.rescan_btn):
+                btn.state(["disabled"])
+            return False
+        self._set_selected_path(path)
+        self._on_scan()
+        return True
+
+    def _clear_technical_tabs(self) -> None:
+        """
+        Blank every detail pane.
+
+        Selecting a new file must not leave the previous file's hashes,
+        VirusTotal counts, signature or local-record rows on screen — they
+        would read as belonging to the newly selected file.
+        """
+        placeholder = [("Durum", "Henüz tarama yapılmadı")]
+        for tab in (self.file_tab, self.vt_tab, self.signature_tab, self.local_tab):
+            try:
+                self._set_kv_rows(tab, placeholder)
+            except Exception:  # pragma: no cover - widget already destroyed
+                pass
+        for entry in getattr(self, "hash_rows", {}).values():
+            try:
+                entry.configure(state="normal")
+                entry.delete(0, "end")
+                entry.configure(state="readonly")
+            except Exception:  # pragma: no cover
+                pass
+
+    @property
+    def is_busy(self) -> bool:
+        """True while a scan is in flight (controller is authoritative)."""
+        return self._controller.is_busy
+
+    def shutdown(self) -> None:
+        """
+        Cancel any in-flight scan and stop accepting worker callbacks.
+
+        Called when the window closes or the UI is about to be rebuilt (e.g.
+        a language switch): the widgets a late callback would touch are about
+        to disappear.
+        """
+        self._controller.shutdown()
+        # Drop the scheduled poll first: otherwise Tk runs the after() script
+        # once the widget is gone and reports `invalid command name`.
+        self._cancel_scheduled_poll()
+        worker = getattr(self, "_worker_thread", None)
+        if worker is not None and worker.is_alive():
+            # Bounded: the pipeline checks the cancel token between stages, so
+            # this returns quickly. We never block the UI indefinitely.
+            worker.join(timeout=5.0)
+        self._busy = False
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         state = ["disabled"] if busy else ["!disabled"]
         self.scan_button.state(state)
         if not busy:
-            # Re-enable depends on whether we now have a result.
-            has_result = self._last_result is not None
+            # Re-enable strictly on the controller's verdict: a result that
+            # was superseded or errored must leave every result action off.
+            has_result = self._controller.can_export
             for btn in (self.rescan_btn, self.export_json_btn, self.export_html_btn, self.remember_btn):
                 btn.state(["!disabled"] if has_result else ["disabled"])
             # Scan button stays usable while a file is selected.
@@ -473,6 +702,14 @@ class TrustCheckView(ttk.Frame):
                 signature_status=sig.status.value if sig else "",
             )
             self._history.add(entry)
+        except HistoryStoreError as exc:
+            # The scan itself succeeded, but the user must know it was not
+            # recorded — otherwise the History tab silently misses runs.
+            log.exception("history record failed")
+            messagebox.showwarning(
+                "Geçmişe kaydedilemedi",
+                f"Tarama tamamlandı ancak geçmişe yazılamadı:\n{exc}",
+            )
         except Exception:
             log.exception("history record failed")
         if self._on_scan_recorded is not None:
@@ -555,8 +792,10 @@ class TrustCheckView(ttk.Frame):
             return
         friendly = {
             SignatureStatus.SIGNED_VALID:    "İmzalı (geçerli)",
-            SignatureStatus.SIGNED_INVALID:  "İmzalı (doğrulanamadı)",
+            SignatureStatus.HASH_MISMATCH:   "İmzalı ama içerik değişmiş (hash uyuşmuyor)",
+            SignatureStatus.UNTRUSTED:       "İmzalı ama sertifika güvenilmez",
             SignatureStatus.UNSIGNED:        "İmza yok",
+            SignatureStatus.NOT_APPLICABLE:  "Bu dosya türüne uygulanamaz",
             SignatureStatus.UNKNOWN:         "Belirsiz",
             SignatureStatus.UNSUPPORTED:     "Desteklenmiyor (yalnızca Windows)",
             SignatureStatus.ERROR:           "Hata",
@@ -619,7 +858,59 @@ class TrustCheckView(ttk.Frame):
         if self._last_result is None or not self._last_result.sha256:
             return
         info = self._last_result.file_info
-        outcome = self._local_store.remember(info.path, self._last_result.sha256, info.size_bytes)
+        result = self._last_result
+
+        # Replacing a baseline destroys the only record of the previous
+        # version, so the policy decides whether it may happen at all.
+        decision = evaluate_baseline_request(
+            local_status=(result.local.status if result.local else LocalVerifyStatus.NOT_TRACKED),
+            risk_level=(result.assessment.level if result.assessment else RiskLevel.UNKNOWN),
+            signature_broken=bool(
+                result.signature
+                and result.signature.status == SignatureStatus.HASH_MISMATCH
+            ),
+            # Pass the real detection counts, not just the summarised level.
+            vt_malicious=(result.vt.stats.malicious if result.vt else 0),
+            vt_suspicious=(result.vt.stats.suspicious if result.vt else 0),
+        )
+        if decision is BaselineDecision.BLOCKED:
+            messagebox.showerror("Kaydedilemez", DECISION_PROMPTS[decision])
+            return
+        if decision is BaselineDecision.ALREADY_CURRENT:
+            messagebox.showinfo("Zaten güncel", DECISION_PROMPTS[decision])
+            return
+        if decision in (BaselineDecision.CONFIRM_REPLACE, BaselineDecision.CONFIRM_RISKY):
+            title = (
+                "Temel sürümü değiştir"
+                if decision is BaselineDecision.CONFIRM_REPLACE
+                else "Yine de kaydedilsin mi?"
+            )
+            if not messagebox.askyesno(title, DECISION_PROMPTS[decision]):
+                return
+
+        # Re-verify the file right before writing: the bytes we are about to
+        # bless as "known good" must be the ones we actually scanned.
+        try:
+            current = compute_file_hashes(info.path, ("sha256",), ensure_stable=True)
+        except HashError as exc:
+            messagebox.showerror("Kaydedilemedi", f"Dosya yeniden okunamadı: {exc}")
+            return
+        if current.get("sha256") != result.sha256:
+            messagebox.showerror(
+                "Kaydedilemedi",
+                "Dosya tarama tamamlandıktan sonra değişti; bu sürüm temel "
+                "sürüm olarak kaydedilmedi. Lütfen yeniden tarayın.",
+            )
+            return
+
+        try:
+            outcome = self._local_store.remember(
+                info.path, self._last_result.sha256, info.size_bytes
+            )
+        except LocalStoreError as exc:
+            # Only claim success when the write actually happened.
+            messagebox.showerror("Kaydedilemedi", str(exc))
+            return
         messagebox.showinfo(
             "Parmak izi kaydedildi",
             outcome.message

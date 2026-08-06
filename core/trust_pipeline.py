@@ -13,7 +13,12 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from core.file_info import FileInfo, FileInfoError, collect_file_info
-from core.hash_utils import HashError, compute_file_hash
+from core.hash_utils import (
+    FileChangedDuringScanError,
+    HashError,
+    compute_file_hashes_with_snapshot,
+    snapshot_file,
+)
 from core.local_verify import LocalVerifyResult, LocalVerifyStore
 from core.risk_engine import RiskAssessment, assess
 from core.signature_checker import SignatureResult, check_signature
@@ -30,6 +35,27 @@ TRUST_ALGORITHMS: tuple[str, ...] = ("md5", "sha1", "sha256")
 
 
 ProgressCallback = Callable[[str], None]
+
+
+def resolve_online_checks(
+    *, autoquery: bool, has_key: bool, online_allowed: bool = True
+) -> bool:
+    """
+    The single place that decides whether this scan may contact VirusTotal.
+
+    All three must hold: the user enabled online checks, a key is configured,
+    and nothing else (e.g. an explicit offline mode) has vetoed it. Callers
+    must route through here instead of testing ``client.has_key`` alone —
+    that was the defect where a saved "do not query" preference was ignored.
+    """
+    return bool(autoquery) and bool(has_key) and bool(online_allowed)
+
+
+# What we send, stated plainly enough to put in the UI verbatim.
+PRIVACY_NOTICE = (
+    "Dosyanız yüklenmez. Yalnızca dosyanın SHA-256 özeti VirusTotal'a "
+    "gönderilir; bu istek IP adresiniz ve API hesabınızla ilişkilendirilebilir."
+)
 
 
 @dataclass
@@ -69,6 +95,7 @@ def run_trust_check(
     check_signature_flag: bool = True,
     query_virustotal: bool = True,
     on_progress: Optional[ProgressCallback] = None,
+    cancel_check: Optional[Callable[[], None]] = None,
 ) -> TrustResult:
     """
     Run the full trust pipeline against *file_path*.
@@ -80,6 +107,11 @@ def run_trust_check(
     """
 
     def report(step: str) -> None:
+        # Cancellation is checked at every stage boundary: the VirusTotal and
+        # signature stages can each take seconds, and a user who cancelled
+        # should not wait for them to finish.
+        if cancel_check is not None:
+            cancel_check()
         if on_progress is not None:
             on_progress(step)
 
@@ -87,18 +119,15 @@ def run_trust_check(
     file_info = collect_file_info(file_path)
 
     report("Hash değerleri hesaplanıyor…")
-    hashes: dict[str, str] = {}
-    # Compute all three in one pass-per-algo to keep the code simple;
-    # the cost is at most 2x I/O which is dominated by disk on big files.
-    # If that ever becomes a bottleneck we can switch to a one-pass
-    # multi-hasher.
-    for algo in TRUST_ALGORITHMS:
-        report(f"{algo.upper()} hesaplanıyor…")
-        try:
-            hashes[algo] = compute_file_hash(file_info.path, algorithm=algo)
-        except HashError:
-            # Surface as empty so we never lie about a hash we don't have.
-            hashes[algo] = ""
+    # One pass over the file for MD5 / SHA-1 / SHA-256 so every digest comes
+    # from the exact same bytes. The snapshot is read with fstat() from that
+    # same descriptor — taking it with a separate stat() afterwards would
+    # leave a window where the file could be swapped between the hashing and
+    # the metadata read. If the file changes mid-read this raises
+    # FileChangedDuringScanError and we do NOT produce a trust verdict.
+    hashes, snapshot_after_hash = compute_file_hashes_with_snapshot(
+        file_info.path, TRUST_ALGORITHMS, ensure_stable=True
+    )
 
     result = TrustResult(file_info=file_info, hashes=hashes)
 
@@ -123,6 +152,34 @@ def run_trust_check(
         result.local = local_store.compare(file_info.path, hashes["sha256"])
     else:
         result.local = None
+
+    # --- Re-verify the file did not change mid-scan -----------------
+    # VirusTotal / signature checks can take seconds; a verdict about a file
+    # that was swapped underneath us in the meantime would be misleading.
+    #
+    # The cheap size/mtime comparison runs first, but we do NOT stop there: an
+    # active attacker can rewrite content and restore both the size and the
+    # mtime. The authoritative check is therefore content-based — we re-read
+    # the file and recompute SHA-256, which no metadata forgery can defeat.
+    report("Dosya bütünlüğü yeniden doğrulanıyor…")
+    try:
+        snapshot_final = snapshot_file(file_info.path)
+    except HashError as exc:
+        raise FileChangedDuringScanError(
+            f"Dosya tarama sırasında erişilemez oldu: {file_info.path}"
+        ) from exc
+    if not snapshot_after_hash.is_same(snapshot_final):
+        raise FileChangedDuringScanError(
+            f"Dosya tarama sırasında değişti: {file_info.path}"
+        )
+
+    recheck, _snap = compute_file_hashes_with_snapshot(
+        file_info.path, ("sha256",), ensure_stable=True
+    )
+    if recheck.get("sha256") != hashes.get("sha256"):
+        raise FileChangedDuringScanError(
+            f"Dosya içeriği tarama sırasında değişti: {file_info.path}"
+        )
 
     # --- Risk + summary ---------------------------------------------
     report("Risk değerlendiriliyor…")

@@ -66,9 +66,11 @@ def main() -> int:
     _build_initial_layout(DEMO_ROOT)
 
     print(">>> Step 2: hashing the folder and saving the manifest")
-    manifest = build_manifest_for_folder(DEMO_ROOT, algorithm="sha256")
+    build = build_manifest_for_folder(DEMO_ROOT, algorithm="sha256")
+    manifest = build.manifest
     manifest.save(MANIFEST_PATH)
-    print(f"    manifest -> {MANIFEST_PATH}  ({len(manifest.entries)} files)")
+    status = "complete" if build.complete else f"PARTIAL ({len(build.skipped)} skipped)"
+    print(f"    manifest -> {MANIFEST_PATH}  ({len(manifest.entries)} files, {status})")
 
     print(">>> Step 3: tampering with the folder (modify + delete + add)")
     _tamper_with_layout(DEMO_ROOT)

@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from core.manifest_manager import SignatureState
 from core.verifier import VerificationResult
 
 # Try to enable colour on Windows. If colorama is missing we silently
@@ -90,10 +91,27 @@ def report_to_console(result: VerificationResult, verbose: bool = False) -> None
         )
 
     print()
-    if result.is_clean:
-        print(_colorise("All files match the manifest. Integrity OK.", "GREEN"))
-    else:
+    if not result.is_clean:
         print(_colorise("Differences detected. Review the report above.", "YELLOW"))
+        return
+
+    # "The files match" and "the reference can be trusted" are separate
+    # claims. Only a manifest verified against an out-of-band key earns the
+    # unqualified wording.
+    if result.signature_state is SignatureState.TRUSTED:
+        print(_colorise(
+            "All files match a manifest verified with your trusted key.", "GREEN"
+        ))
+    elif result.signature_state is SignatureState.VALID_EMBEDDED:
+        print(_colorise(
+            "All files match the manifest, but the manifest's origin was not "
+            "verified (it is signed only with its own embedded key).", "YELLOW"
+        ))
+    else:
+        print(_colorise(
+            "All files match the manifest, but the manifest is unsigned — the "
+            "reference data itself could have been altered.", "YELLOW"
+        ))
 
 
 def _print_detail_section(title: str, items: list[str], color: str) -> None:
@@ -133,12 +151,34 @@ def report_to_json(
 # ----------------------------------------------------------------------
 _CSV_HEADER = ["status", "path", "old_hash", "new_hash", "old_size", "new_size", "error"]
 
+# Cells beginning with any of these are interpreted as a formula by Excel /
+# LibreOffice / Google Sheets. A hostile file path or error string could
+# therefore run a formula in whoever opens the report. We neutralise them by
+# prefixing with a single quote (the value is preserved, just forced to text).
+_CSV_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: Any) -> Any:
+    """Neutralise a potential spreadsheet-formula cell (strings only)."""
+    if isinstance(value, str) and value and value[0] in _CSV_INJECTION_PREFIXES:
+        return "'" + value
+    return value
+
 
 def report_to_csv(
     result_or_dict: VerificationResult | dict[str, Any],
     output_path: str | Path,
+    *,
+    sanitize: bool = True,
 ) -> Path:
-    """Persist the verification result as a flat CSV."""
+    """
+    Persist the verification result as a flat CSV.
+
+    By default (``sanitize=True``) any text cell that would be treated as a
+    formula by a spreadsheet program is prefixed with a single quote so it is
+    rendered as literal text. Pass ``sanitize=False`` only when producing CSV
+    for machine consumption where the raw values are required.
+    """
     data = (
         result_or_dict.to_dict()
         if isinstance(result_or_dict, VerificationResult)
@@ -173,6 +213,9 @@ def report_to_csv(
             "",
             entry.get("error", ""),
         ])
+
+    if sanitize:
+        rows = [[_csv_safe(cell) for cell in row] for row in rows]
 
     path = Path(output_path)
     try:

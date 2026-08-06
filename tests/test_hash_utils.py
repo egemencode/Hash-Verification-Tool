@@ -12,6 +12,7 @@ from pathlib import Path
 # Allow running with `python -m unittest` from the project root.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tests.support import DiagnosticTempDir
 from core.hash_utils import (  # noqa: E402
     DEFAULT_ALGORITHM,
     SUPPORTED_ALGORITHMS,
@@ -25,7 +26,7 @@ from core.hash_utils import (  # noqa: E402
 
 class HashUtilsTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = DiagnosticTempDir()
         self.root = Path(self.tmp.name)
         self.payload = b"hash-verification-tool test payload\n" * 1024
         self.sample = self.root / "sample.bin"

@@ -29,6 +29,8 @@ from core.hash_utils import (
 from core.manifest_manager import (
     Manifest,
     ManifestError,
+    ManifestIntegrityError,
+    SignatureState,
     build_manifest_for_file,
     build_manifest_for_folder,
 )
@@ -44,10 +46,35 @@ from utils.logger import get_logger, set_verbose
 
 log = get_logger("cli")
 
+
+def _apply_output_encoding_contract() -> None:
+    """
+    Encoding contract: this CLI always writes UTF-8.
+
+    Console output otherwise follows the active code page (cp1254 on a Turkish
+    Windows), so the same message is bytes-different depending on who runs it
+    — and Turkish characters in paths or messages raise
+    UnicodeEncodeError outright. Callers and tests can therefore decode our
+    stdout/stderr as UTF-8 unconditionally. ``errors="replace"`` keeps a
+    stray undecodable byte from killing the run.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):  # pragma: no cover - exotic streams
+                pass
+
+# Exit codes are part of the CLI contract: each failure mode a script might
+# want to react to differently gets its own code.
 EXIT_OK = 0
-EXIT_DIFFERENCES = 1   # verify ran, found drift
-EXIT_USAGE = 2         # bad arguments
-EXIT_FAILURE = 3       # unrecoverable error
+EXIT_DIFFERENCES = 1        # verify ran, files differ from the manifest
+EXIT_USAGE = 2              # bad arguments
+EXIT_FAILURE = 3            # unrecoverable error (missing/unreadable input)
+EXIT_MANIFEST_INVALID = 4   # manifest is corrupt / schema unsupported
+EXIT_UNTRUSTED_REFERENCE = 5  # signature missing or unverifiable
+EXIT_INCOMPLETE = 6         # scan could not cover the whole folder
 
 
 # ----------------------------------------------------------------------
@@ -84,6 +111,17 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Hash algorithm (default: {DEFAULT_ALGORITHM}).",
     )
     hash_p.add_argument(
+        "--write-partial",
+        action="store_true",
+        help=(
+            "If the folder cannot be fully scanned, still write a clearly "
+            "marked <output>.partial.json artefact. Without this, an "
+            "incomplete scan writes nothing, because a manifest sitting at "
+            "the expected path would be taken as a full description of the "
+            "folder."
+        ),
+    )
+    hash_p.add_argument(
         "--output",
         type=str,
         default=None,
@@ -118,6 +156,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--show-details",
         action="store_true",
         help="Print every modified/new/missing entry, not just the summary.",
+    )
+    verify_p.add_argument(
+        "--allow-unsigned",
+        action="store_true",
+        help=(
+            "Accept a manifest whose origin cannot be verified (unsigned, or "
+            "signed only with a key embedded in the manifest itself). Without "
+            "this flag such a reference exits with code 5, because matching an "
+            "unverifiable reference does not establish integrity."
+        ),
+    )
+    verify_p.add_argument(
+        "--trusted-key",
+        type=str,
+        default=None,
+        help=(
+            "Ed25519 public key (hex) to verify a signed manifest against. "
+            "Without it a signed manifest can only be checked against its own "
+            "embedded key, which proves consistency but not external trust."
+        ),
     )
 
     # ----- report ------------------------------------------------------
@@ -176,30 +234,107 @@ def _cmd_hash(args: argparse.Namespace) -> int:
         log.debug("hashed [%d/%d] %s", event.done, event.total, event.path)
 
     try:
-        manifest = build_manifest_for_folder(
+        build = build_manifest_for_folder(
             args.folder,
             algorithm=args.algo,
             on_error=_on_error,
             on_progress=_on_progress,
+            # Never let the manifest we are about to write become part of its
+            # own inventory.
+            exclude=[output],
         )
-        manifest.save(output)
     except (HashError, ManifestError) as exc:
         log.error("%s", exc)
         return EXIT_FAILURE
 
+    if build.complete:
+        try:
+            build.save(output)
+        except ManifestError as exc:
+            log.error("%s", exc)
+            return EXIT_FAILURE
+        print(f"Manifest written to {output} ({build.file_count} files hashed).")
+        return EXIT_OK
+
+    # A partial manifest is NOT a success: it records a folder we could not
+    # fully read, so anything it misses would silently verify as "unchanged".
+    # Nothing is written to the expected path — only, on request, a clearly
+    # named .partial.json artefact.
+    written = None
+    if getattr(args, "write_partial", False):
+        try:
+            written = build.save(output, allow_partial=True)
+        except ManifestError as exc:
+            log.error("%s", exc)
     print(
-        f"Manifest written to {output} "
-        f"({len(manifest.entries)} files hashed, {error_count} skipped)."
+        f"KISMİ tarama: {build.file_count} dosya işlendi, "
+        f"{len(build.skipped)} atlandı, "
+        f"{len(build.changed_during_scan)} dosya tarama sırasında değişti. "
+        + (
+            f"Kısmi artefakt: {written}"
+            if written
+            else f"Manifest YAZILMADI ({output}). Kısmi bir artefakt için "
+                 "--write-partial kullanın."
+        ),
+        file=sys.stderr,
     )
-    return EXIT_OK
+    for rel, reason in build.errors[:20]:
+        print(f"  atlandı: {rel} -> {reason}", file=sys.stderr)
+    return EXIT_INCOMPLETE
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
+    trusted_key = getattr(args, "trusted_key", None)
     try:
-        manifest = Manifest.load(args.manifest)
+        manifest = Manifest.load(args.manifest, trusted_public_hex=trusted_key)
+    except ManifestIntegrityError as exc:
+        # A manifest that claims integrity protection but cannot prove it is a
+        # tampering signal, not a generic parse failure — say so plainly.
+        log.error("MANIFEST INTEGRITY FAILURE: %s", exc)
+        print(
+            "HATA: Manifest imzası doğrulanamadı — bu manifest kurcalanmış "
+            "olabilir. Doğrulama yapılmadı.",
+            file=sys.stderr,
+        )
+        return EXIT_UNTRUSTED_REFERENCE
     except ManifestError as exc:
         log.error("Could not load manifest: %s", exc)
-        return EXIT_FAILURE
+        # Distinguish "no such manifest" from "this file is not a usable
+        # manifest": a caller script reacts differently to each.
+        if not Path(args.manifest).exists():
+            print(f"HATA: Manifest bulunamadı: {args.manifest}", file=sys.stderr)
+            return EXIT_FAILURE
+        print(f"HATA: Manifest okunamadı/geçersiz: {exc}", file=sys.stderr)
+        return EXIT_MANIFEST_INVALID
+
+    reference_trusted = manifest.signature_state is SignatureState.TRUSTED
+    allow_unsigned = bool(getattr(args, "allow_unsigned", False))
+
+    if reference_trusted:
+        print("Manifest imzası güvenilen anahtarla doğrulandı.")
+    elif manifest.signature_state is SignatureState.VALID_EMBEDDED:
+        print(
+            "UYARI: Manifest imzası geçerli ama yalnızca kendi gömülü "
+            "anahtarıyla doğrulandı — kaynağı doğrulanmadı. "
+            "Dış güven için --trusted-key kullanın."
+        )
+    else:
+        print(
+            "UYARI: Bu manifest imzasız — referans veriler bir saldırgan "
+            "tarafından değiştirilmiş olabilir."
+        )
+
+    if not reference_trusted and not allow_unsigned:
+        # Matching an unverifiable reference proves consistency, not
+        # integrity. Rather than quietly returning success for backwards
+        # compatibility, require the caller to say they accept that.
+        print(
+            "HATA: Referansın kaynağı doğrulanamadı. Karşılaştırma yapılmadı.\n"
+            "      İmzalı bir manifesti --trusted-key ile doğrulayın veya "
+            "bilinçli olarak --allow-unsigned kullanın.",
+            file=sys.stderr,
+        )
+        return EXIT_UNTRUSTED_REFERENCE
 
     log.info(
         "Verifying %s against %s (algo=%s, %d entries)",
@@ -213,10 +348,24 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         log.debug("verified [%d/%d] %s", event.done, event.total, event.path)
 
     try:
-        result = Verifier(manifest).verify(args.folder, on_progress=_on_verify_progress)
+        result = Verifier(manifest, trusted_public_hex=trusted_key).verify(
+            args.folder,
+            on_progress=_on_verify_progress,
+            # The manifest (and any report we write into the tree) is not part
+            # of the data being verified.
+            exclude=[args.manifest] + ([args.report] if args.report else []),
+        )
+    except ManifestIntegrityError as exc:
+        log.error("MANIFEST INTEGRITY FAILURE: %s", exc)
+        print(f"HATA: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
     except (FileNotFoundError, HashError) as exc:
         log.error("%s", exc)
         return EXIT_FAILURE
+
+    # Record that the caller consciously accepted an unverifiable reference,
+    # so the JSON report says how this result was reached.
+    result.policy_accepted = allow_unsigned and not reference_trusted
 
     report_to_console(result, verbose=args.show_details)
 
@@ -235,7 +384,20 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             log.error("%s", exc)
             return EXIT_FAILURE
 
-    return EXIT_OK if result.is_clean else EXIT_DIFFERENCES
+    # Derive the exit code from the typed outcome rather than the ambiguous
+    # is_clean flag: a scan that could not observe the whole folder is not a
+    # pass, even when every file it did see matched.
+    if not result.scan_complete:
+        print(
+            "HATA: Klasör tarama sırasında değişti "
+            f"({len(result.changed_during_scan)} yol); sonuç tek bir ana ait "
+            "değil.",
+            file=sys.stderr,
+        )
+        return EXIT_INCOMPLETE
+    if not result.files_match:
+        return EXIT_DIFFERENCES
+    return EXIT_OK
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
@@ -268,6 +430,7 @@ def _default_output_for(input_path: str, fmt: str) -> str:
 # Entry point
 # ----------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
+    _apply_output_encoding_contract()
     parser = build_parser()
     args = parser.parse_args(argv)
 

@@ -16,6 +16,7 @@ def _vt_ok(malicious: int = 0, suspicious: int = 0) -> VTLookupResult:
         hash_value="x" * 64,
         stats=VTAnalysisStats(malicious=malicious, suspicious=suspicious, harmless=70),
         total_engines=70,
+        analysing_engines=70,
         message="ok",
     )
 

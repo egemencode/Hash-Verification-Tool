@@ -9,18 +9,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tests.support import DiagnosticTempDir
 from core.manifest_manager import build_manifest_for_folder  # noqa: E402
 from core.verifier import Verifier  # noqa: E402
 
 
 class VerifierTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = DiagnosticTempDir()
         self.root = Path(self.tmp.name)
         (self.root / "stable.txt").write_text("stable content")
         (self.root / "will_change.txt").write_text("original content")
         (self.root / "will_disappear.txt").write_text("temporary content")
-        self.manifest = build_manifest_for_folder(self.root)
+        self.manifest = build_manifest_for_folder(self.root).manifest
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

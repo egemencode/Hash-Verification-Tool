@@ -6,10 +6,20 @@ Combines the verdicts produced by the other modules
 :mod:`core.local_verify`) into a single user-facing risk level:
 ``LOW`` / ``MEDIUM`` / ``HIGH`` / ``UNKNOWN``.
 
-The scoring is intentionally simple — the goal is *defensible* and
-*explainable*, not academically optimal. Every signal contributes a
-positive (riskier) or negative (safer) integer; the engine clamps the
-total and maps it onto a bucket.
+Design principles (v2 policy)
+-----------------------------
+* **Risk signal and evidence sufficiency are separate.** A low numeric
+  score only means "no strong risk signal". It becomes ``LOW`` *only* when
+  we actually have malware evidence (a real VirusTotal verdict). Otherwise
+  the result is ``UNKNOWN`` — "not enough data" — never a reassuring LOW.
+* **Some signals are hard overrides.** A malicious VirusTotal hit, a
+  changed local fingerprint, or a broken-integrity signature
+  (``HASH_MISMATCH``) force ``HIGH`` regardless of the numeric score.
+* **A valid signature is not proof of safety**, and a matching local
+  fingerprint only means "same as last time" — neither is malware evidence.
+* The numeric ``score`` is an internal, auditable weight. It is clamped to
+  a defined range and is **never** presented to the user as a probability
+  or a confidence level.
 """
 
 from __future__ import annotations
@@ -23,11 +33,38 @@ from core.signature_checker import SignatureResult, SignatureStatus
 from core.vt_client import VTLookupResult, VTStatus
 
 
+# Bump this whenever the decision logic changes so that reports produced by
+# an older policy can be flagged in the UI/history.
+RISK_POLICY_VERSION = "2.0"
+
+# The score is an internal weight, clamped to this symmetric range. It is
+# NOT a probability and NOT a confidence percentage.
+SCORE_MIN = -100
+SCORE_MAX = 100
+
+# Documented minimum evidence for a LOW verdict. A handful of engines
+# agreeing tells us very little; below this the honest answer is "not enough
+# data" rather than a reassuring "low risk". VirusTotal routinely returns
+# 60-75 engines, so this is a low bar that only filters degenerate responses.
+MIN_ENGINES_FOR_LOW = 10
+
+
 class RiskLevel(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     UNKNOWN = "unknown"
+
+
+# Severity ordering, used only to apply a "minimum level" floor. UNKNOWN is
+# deliberately lowest so that a genuine MEDIUM/HIGH floor always wins over
+# an "insufficient evidence" result.
+_LEVEL_ORDER = {
+    RiskLevel.UNKNOWN: 0,
+    RiskLevel.LOW: 1,
+    RiskLevel.MEDIUM: 2,
+    RiskLevel.HIGH: 3,
+}
 
 
 @dataclass
@@ -48,6 +85,11 @@ class RiskAssessment:
     level: RiskLevel
     score: int
     headline: str
+    policy_version: str = RISK_POLICY_VERSION
+    # True only when we have real malware evidence (a VirusTotal verdict).
+    # Kept separate from ``level`` so the UI can say "not enough data"
+    # instead of implying safety.
+    evidence_sufficient: bool = False
     factors: list[RiskFactor] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -55,12 +97,14 @@ class RiskAssessment:
             "level": self.level.value,
             "score": self.score,
             "headline": self.headline,
+            "policy_version": self.policy_version,
+            "evidence_sufficient": self.evidence_sufficient,
             "factors": [f.to_dict() for f in self.factors],
         }
 
 
-# Tunable thresholds. Kept at module scope so unit tests can reference
-# them without poking at constants inside a function.
+# Tunable thresholds. Kept at module scope so unit tests can reference them
+# without poking at constants inside a function.
 _THRESHOLD_HIGH = 60
 _THRESHOLD_MEDIUM = 25
 
@@ -78,9 +122,112 @@ def assess(
     score += _score_signature(signature_result, factors)
     score += _score_local(local_result, factors)
 
-    level = _bucket(score, vt_result, local_result)
-    headline = _headline_for(level)
-    return RiskAssessment(level=level, score=score, headline=headline, factors=factors)
+    # Clamp: the score is a bounded internal weight, not an open-ended number.
+    score = max(SCORE_MIN, min(SCORE_MAX, score))
+
+    floor = _security_floor(vt_result, signature_result, local_result)
+    evidence = _has_malware_evidence(vt_result)
+
+    level = _decide(score, evidence=evidence, floor=floor)
+    return RiskAssessment(
+        level=level,
+        score=score,
+        headline=_headline_for(level),
+        policy_version=RISK_POLICY_VERSION,
+        evidence_sufficient=evidence,
+        factors=factors,
+    )
+
+
+# ----------------------------------------------------------------------
+# Decision helpers
+# ----------------------------------------------------------------------
+def _security_floor(
+    vt: Optional[VTLookupResult],
+    sig: Optional[SignatureResult],
+    local: Optional[LocalVerifyResult],
+) -> RiskLevel:
+    """
+    The decision table: the **minimum** level each signal mandates.
+
+    This is deliberately not additive. A detection is a fact about the file;
+    positive context (a valid signature, a matching fingerprint) explains
+    *who* shipped it, never that the detection was wrong. Scores are only
+    allowed to raise the result above this floor, never below it.
+    """
+    floor = RiskLevel.UNKNOWN
+
+    def raise_to(level: RiskLevel) -> None:
+        nonlocal floor
+        if _LEVEL_ORDER[level] > _LEVEL_ORDER[floor]:
+            floor = level
+
+    if vt is not None and vt.status == VTStatus.OK:
+        # Note: this deliberately runs even when `stats_malformed` is set. A
+        # counter we *did* parse successfully is still a real detection; a
+        # broken sibling field must not make it disappear. Malformation only
+        # blocks the reassuring direction (see _has_malware_evidence).
+        if vt.stats.malicious >= 1:
+            raise_to(RiskLevel.HIGH)
+        elif vt.stats.suspicious >= 1:
+            # Even a single suspicious verdict among many clean ones must be
+            # surfaced for review — it may not be flattened into LOW.
+            raise_to(RiskLevel.MEDIUM)
+
+    if local is not None and local.status == LocalVerifyStatus.CHANGED:
+        raise_to(RiskLevel.HIGH)
+
+    if sig is not None:
+        if sig.status == SignatureStatus.HASH_MISMATCH:
+            raise_to(RiskLevel.HIGH)
+        elif sig.status == SignatureStatus.UNTRUSTED:
+            raise_to(RiskLevel.MEDIUM)
+
+    return floor
+
+
+def _has_malware_evidence(vt: Optional[VTLookupResult]) -> bool:
+    """
+    True only when we have a *real* verdict about maliciousness.
+
+    Only a VirusTotal response backed by at least one engine counts. A
+    valid signature or a matching local fingerprint says nothing about
+    malware, so they never make the evidence "sufficient". A NOT_FOUND,
+    network/quota error, missing key, or a zero-engine response are all
+    "no evidence".
+    """
+    # Requires an OK verdict, well-formed stats, established freshness, and
+    # enough engines behind it to be meaningful. A handful of engines is not
+    # a basis for reassuring the user.
+    # The quorum counts only engines that actually returned a verdict —
+    # timeouts and unsupported types analysed nothing and must not pad it.
+    return bool(
+        vt is not None
+        and vt.is_usable_verdict
+        and vt.analysing_engines >= MIN_ENGINES_FOR_LOW
+    )
+
+
+def _decide(score: int, *, evidence: bool, floor: RiskLevel) -> RiskLevel:
+    """
+    Combine the additive score with the mandatory security floor.
+
+    The score may only *raise* the outcome. This is what makes the model
+    monotonic: no accumulation of reassuring signals can push a result below
+    what the decision table requires.
+    """
+    if score >= _THRESHOLD_HIGH:
+        level = RiskLevel.HIGH
+    elif score >= _THRESHOLD_MEDIUM:
+        level = RiskLevel.MEDIUM
+    else:
+        # Below the medium threshold we only call it LOW when we actually
+        # have sufficient evidence. Otherwise it is "not enough data".
+        level = RiskLevel.LOW if evidence else RiskLevel.UNKNOWN
+
+    if _LEVEL_ORDER[floor] > _LEVEL_ORDER[level]:
+        level = floor
+    return level
 
 
 # ----------------------------------------------------------------------
@@ -88,158 +235,167 @@ def assess(
 # ----------------------------------------------------------------------
 def _score_virustotal(vt: Optional[VTLookupResult], out: list[RiskFactor]) -> int:
     if vt is None:
-        out.append(
-            RiskFactor(
-                label="VirusTotal",
-                detail="Sorgu yapılmadı.",
-                weight=0,
-                severity="info",
-            )
-        )
+        out.append(RiskFactor("VirusTotal", "Sorgu yapılmadı.", 0, "info"))
         return 0
 
     if vt.status == VTStatus.OK:
+        # A verdict with no *analysing* engines behind it is not usable
+        # evidence, even if plenty of engines timed out.
+        if vt.analysing_engines <= 0:
+            out.append(
+                RiskFactor(
+                    "VirusTotal",
+                    "Sonuç döndü ama hiçbir motor veri vermedi; güven sinyali sayılmadı.",
+                    0,
+                    "info",
+                )
+            )
+            return 0
+
         malicious = vt.stats.malicious
         suspicious = vt.stats.suspicious
         if malicious >= 5:
-            weight = 80
-            severity = "bad"
+            weight, severity = 80, "bad"
             detail = f"{malicious} güvenlik motoru zararlı olarak işaretledi."
         elif malicious >= 1:
-            weight = 50
-            severity = "bad"
+            weight, severity = 50, "bad"
             detail = f"{malicious} güvenlik motoru zararlı olarak işaretledi."
         elif suspicious >= 3:
-            weight = 25
-            severity = "warn"
+            weight, severity = 25, "warn"
             detail = f"{suspicious} motor şüpheli olarak işaretledi."
         elif suspicious >= 1:
-            weight = 12
-            severity = "warn"
+            weight, severity = 12, "warn"
             detail = f"{suspicious} motor şüpheli olarak işaretledi."
         else:
-            weight = -15
-            severity = "good"
-            engines_text = (
-                f"{vt.total_engines} motorda" if vt.total_engines else "motorlarda"
-            )
-            detail = f"VirusTotal {engines_text} zararlı/şüpheli işareti yok."
-        out.append(
-            RiskFactor(
-                label="VirusTotal",
-                detail=detail,
-                weight=weight,
-                severity=severity,
-            )
-        )
+            # A clean verdict is only a positive signal when we can establish
+            # that it is current and well-formed. Malicious/suspicious hits
+            # above are scored regardless of age — a stale detection is still
+            # a detection; only the *reassuring* direction needs freshness.
+            if not vt.is_fresh:
+                reason = (
+                    "VirusTotal sonucu çok eski"
+                    if vt.is_stale
+                    else "VirusTotal sonucunun tarihi belirlenemedi"
+                )
+                out.append(
+                    RiskFactor(
+                        "VirusTotal",
+                        f"{reason}; güncel bir güven sinyali sayılmadı.",
+                        0,
+                        "info",
+                    )
+                )
+                return 0
+            if vt.stats_malformed:
+                out.append(
+                    RiskFactor(
+                        "VirusTotal",
+                        "VirusTotal motor istatistikleri okunamadı; güven sinyali sayılmadı.",
+                        0,
+                        "info",
+                    )
+                )
+                return 0
+            # Context, not negative risk: a clean sweep is recorded with zero
+            # weight so it cannot offset a detection from another signal.
+            weight, severity = 0, "good"
+            detail = f"{vt.analysing_engines} motorda zararlı/şüpheli işareti yok."
+        out.append(RiskFactor("VirusTotal", detail, weight, severity))
         return weight
 
     if vt.status == VTStatus.NOT_FOUND:
         out.append(
             RiskFactor(
-                label="VirusTotal",
-                detail="Bu hash VirusTotal veritabanında yok — dosya yeni veya nadir olabilir.",
-                weight=10,
-                severity="warn",
+                "VirusTotal",
+                "Bu hash VirusTotal'da yok — dosya yeni veya nadir olabilir; "
+                "temiz olduğu anlamına gelmez.",
+                10,
+                "warn",
             )
         )
         return 10
 
-    if vt.status == VTStatus.NO_API_KEY:
-        out.append(
-            RiskFactor(
-                label="VirusTotal",
-                detail="API anahtarı ayarlanmadığı için sorgu yapılamadı.",
-                weight=0,
-                severity="info",
-            )
-        )
-        return 0
-
-    if vt.status in (VTStatus.UNAUTHORIZED, VTStatus.RATE_LIMITED):
-        out.append(
-            RiskFactor(
-                label="VirusTotal",
-                detail=vt.message or "Sorgu reddedildi.",
-                weight=0,
-                severity="info",
-            )
-        )
-        return 0
-
-    out.append(
-        RiskFactor(
-            label="VirusTotal",
-            detail=vt.message or "Sorgu sırasında bir sorun oluştu.",
-            weight=0,
-            severity="info",
-        )
-    )
+    # No key / unauthorized / rate-limited / network / other error: these are
+    # NOT clean evidence, and they carry no weight.
+    detail = {
+        VTStatus.NO_API_KEY: "API anahtarı ayarlanmadığı için sorgu yapılamadı.",
+        VTStatus.UNAUTHORIZED: vt.message or "API anahtarı reddedildi.",
+        VTStatus.RATE_LIMITED: vt.message or "Hız limitine takıldı.",
+        VTStatus.NETWORK_ERROR: vt.message or "VirusTotal'a ulaşılamadı.",
+    }.get(vt.status, vt.message or "Sorgu tamamlanamadı.")
+    out.append(RiskFactor("VirusTotal", detail, 0, "info"))
     return 0
 
 
 def _score_signature(sig: Optional[SignatureResult], out: list[RiskFactor]) -> int:
     if sig is None:
-        out.append(
-            RiskFactor(
-                label="Dijital İmza",
-                detail="Kontrol yapılmadı.",
-                weight=0,
-                severity="info",
-            )
-        )
+        out.append(RiskFactor("Dijital İmza", "Kontrol yapılmadı.", 0, "info"))
         return 0
 
-    if sig.status == SignatureStatus.SIGNED_VALID:
+    status = sig.status
+    if status == SignatureStatus.SIGNED_VALID:
         detail = (
             f"Geçerli dijital imza: {sig.signer}"
             if sig.signer
-            else "Dosya geçerli bir dijital imzaya sahip."
+            else "Dosyanın geçerli bir dijital imzası var."
         )
-        out.append(
-            RiskFactor(label="Dijital İmza", detail=detail, weight=-20, severity="good")
-        )
-        return -20
+        # Weight 0 on purpose: a signature tells us who published the file,
+        # not that it is harmless. Signed malware is routine, so this must
+        # never subtract from a detection.
+        out.append(RiskFactor("Dijital İmza", detail, 0, "good"))
+        return 0
 
-    if sig.status == SignatureStatus.SIGNED_INVALID:
+    if status == SignatureStatus.HASH_MISMATCH:
         out.append(
             RiskFactor(
-                label="Dijital İmza",
-                detail="İmza var ama doğrulanamadı (sertifika güvenilir değil veya hash uyumsuz).",
-                weight=30,
-                severity="bad",
+                "Dijital İmza",
+                "İmza var ama dosya içeriği imzalandıktan sonra değişmiş (hash uyuşmuyor).",
+                60,
+                "bad",
+            )
+        )
+        return 60
+
+    if status == SignatureStatus.UNTRUSTED:
+        out.append(
+            RiskFactor(
+                "Dijital İmza",
+                "İmza var ama sertifika zinciri doğrulanamadı (güvenilir değil).",
+                30,
+                "bad",
             )
         )
         return 30
 
-    if sig.status == SignatureStatus.UNSIGNED:
+    if status == SignatureStatus.UNSIGNED:
         out.append(
-            RiskFactor(
-                label="Dijital İmza",
-                detail="Dosyada dijital imza yok.",
-                weight=8,
-                severity="warn",
-            )
+            RiskFactor("Dijital İmza", "Dosyada dijital imza yok.", 8, "warn")
         )
         return 8
 
-    if sig.status == SignatureStatus.UNSUPPORTED:
+    if status == SignatureStatus.NOT_APPLICABLE:
         out.append(
             RiskFactor(
-                label="Dijital İmza",
-                detail="Bu işletim sisteminde desteklenmiyor.",
-                weight=0,
-                severity="info",
+                "Dijital İmza",
+                "Bu dosya türü için imza kontrolü uygulanamaz.",
+                0,
+                "info",
             )
         )
         return 0
 
+    if status == SignatureStatus.UNSUPPORTED:
+        out.append(
+            RiskFactor(
+                "Dijital İmza", "Bu işletim sisteminde desteklenmiyor.", 0, "info"
+            )
+        )
+        return 0
+
+    # UNKNOWN / ERROR: inconclusive check — neutral, never "invalid".
     out.append(
         RiskFactor(
-            label="Dijital İmza",
-            detail=sig.message or "İmza durumu belirsiz.",
-            weight=0,
-            severity="info",
+            "Dijital İmza", sig.message or "İmza durumu belirlenemedi.", 0, "info"
         )
     )
     return 0
@@ -250,23 +406,26 @@ def _score_local(local: Optional[LocalVerifyResult], out: list[RiskFactor]) -> i
         return 0
 
     if local.status == LocalVerifyStatus.SAME:
+        # Weight 0: the fingerprint store is a plain, user-writable JSON file,
+        # so it is not a trust root. "Same as last time" is context only and
+        # must never lower the risk produced by an engine detection.
         out.append(
             RiskFactor(
-                label="Yerel Kayıt",
-                detail="Daha önce kaydedilen sürümle birebir aynı.",
-                weight=-10,
-                severity="good",
+                "Yerel Kayıt",
+                "Daha önce kaydedilen sürümle birebir aynı (zararlılık kanıtı değil).",
+                0,
+                "good",
             )
         )
-        return -10
+        return 0
 
     if local.status == LocalVerifyStatus.CHANGED:
         out.append(
             RiskFactor(
-                label="Yerel Kayıt",
-                detail="Dosya daha önce kaydedilen sürümden farklı!",
-                weight=40,
-                severity="bad",
+                "Yerel Kayıt",
+                "Dosya daha önce kaydedilen sürümden farklı!",
+                40,
+                "bad",
             )
         )
         return 40
@@ -274,10 +433,7 @@ def _score_local(local: Optional[LocalVerifyResult], out: list[RiskFactor]) -> i
     if local.status == LocalVerifyStatus.NEW:
         out.append(
             RiskFactor(
-                label="Yerel Kayıt",
-                detail="Bu dosyanın hash'i yerel kayda eklendi.",
-                weight=0,
-                severity="info",
+                "Yerel Kayıt", "Bu dosyanın hash'i yerel kayda eklendi.", 0, "info"
             )
         )
         return 0
@@ -286,39 +442,11 @@ def _score_local(local: Optional[LocalVerifyResult], out: list[RiskFactor]) -> i
 
 
 # ----------------------------------------------------------------------
-# Bucketing & headline
+# Headline
 # ----------------------------------------------------------------------
-def _bucket(
-    score: int,
-    vt: Optional[VTLookupResult],
-    local: Optional[LocalVerifyResult],
-) -> RiskLevel:
-    # Strong signals override the numeric bucket so the user does not
-    # see "Low risk" right after a 40-engine red flag.
-    if vt and vt.status == VTStatus.OK and vt.stats.malicious >= 1:
-        return RiskLevel.HIGH
-    if local and local.status == LocalVerifyStatus.CHANGED:
-        return RiskLevel.HIGH
-    if score >= _THRESHOLD_HIGH:
-        return RiskLevel.HIGH
-    if score >= _THRESHOLD_MEDIUM:
-        return RiskLevel.MEDIUM
-    # If we have basically no signal at all (no VT key, no signature
-    # support, no local record), call it Unknown instead of pretending
-    # everything is fine.
-    has_any_evidence = (
-        (vt is not None and vt.status in (VTStatus.OK, VTStatus.NOT_FOUND))
-        or (local is not None and local.status != LocalVerifyStatus.NOT_TRACKED)
-    )
-    if not has_any_evidence and score <= 0:
-        return RiskLevel.UNKNOWN
-    return RiskLevel.LOW
-
-
 def _headline_for(level: RiskLevel) -> str:
     # We intentionally avoid words like "güvenli" / "safe". No tool can
-    # guarantee a file is harmless — we only report what the available
-    # signals say.
+    # guarantee a file is harmless — we only report what the signals say.
     return {
         RiskLevel.LOW: "Güçlü bir risk işareti bulunamadı.",
         RiskLevel.MEDIUM: "Dikkatli olun — bazı şüpheli işaretler var.",

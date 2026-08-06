@@ -35,12 +35,15 @@ from core.history_manager import HistoryManager
 from core.local_verify import LocalVerifyStore
 from core.manifest_manager import (
     Manifest,
+    ManifestIntegrityError,
+    SignatureState,
     build_manifest_for_file,
     build_manifest_for_folder,
 )
 from core.reporter import convert_report, report_to_csv, report_to_json
 from core.verifier import Verifier
 from core.vt_client import VirusTotalClient
+from gui.trust_presenter import collect_startup_warnings, describe_result
 from gui.i18n import (
     DEFAULT_LANGUAGE,
     SUPPORTED_LANGUAGES,
@@ -53,9 +56,13 @@ from gui.views.settings_view import SettingsView
 from gui.views.trust_check_view import TrustCheckView
 from utils.logger import get_logger
 from utils.settings import (
+    KEY_VT_AUTOQUERY,
     AppSettings,
+    SettingsError,
+    clear_migration_warnings,
     history_path,
     load_settings,
+    pending_migration_warnings,
     save_settings,
     trust_store_path,
 )
@@ -142,16 +149,33 @@ class HashToolApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
 
+        # Handles of every after() script we scheduled, so teardown can cancel
+        # them instead of letting Tk run them against destroyed widgets.
+        self._after_ids: set[str] = set()
+
         # Load language preference *before* building any widgets.
         self._settings = load_settings()
         set_language(self._settings.get("language", DEFAULT_LANGUAGE))
 
         # Typed settings + persistent stores (history, fingerprints).
         self._app_settings = AppSettings.load()
+        # If a legacy plaintext API key could not be scrubbed we must say so —
+        # claiming "your key is now protected" would be false.
+        self._migration_warnings = pending_migration_warnings()
+        clear_migration_warnings()
         self._history_manager = HistoryManager(
             history_path(), limit=self._app_settings.history_limit
         )
         self._local_store = LocalVerifyStore(trust_store_path())
+        # Touch both stores so a corrupt/unreadable file is detected (and
+        # quarantined) now, while we still have a chance to tell the user.
+        self._history_manager.all()
+        self._local_store.all()
+        self._startup_warning = collect_startup_warnings(
+            settings_warnings=self._migration_warnings,
+            history_warning=self._history_manager.load_warning,
+            local_store_warning=self._local_store.load_warning,
+        )
 
         self.geometry("1020x760")
         self.minsize(880, 600)
@@ -168,7 +192,24 @@ class HashToolApp(tk.Tk):
         self.trust_view: Optional[TrustCheckView] = None
         self.history_view: Optional[HistoryView] = None
 
+        # Explicit close flow: the X button must go through destroy() so
+        # in-flight scans are cancelled before the widgets disappear.
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
         self._render_ui()
+
+        if self._startup_warning is not None:
+            # Deferred so the dialog appears over a drawn window.
+            self.schedule(300, self._show_startup_warning)
+
+    def _show_startup_warning(self) -> None:
+        warning = self._startup_warning
+        if warning is None:
+            return
+        # Cleared first so the notice is shown exactly once per launch.
+        self._startup_warning = None
+        self._migration_warnings = []
+        messagebox.showwarning(warning.title, warning.body)
 
     # ------------------------------------------------------------------
     # Chrome
@@ -230,6 +271,7 @@ class HashToolApp(tk.Tk):
             history_manager=self._history_manager,
             set_status=self.status_var.set,
             on_scan_recorded=self._refresh_history,
+            get_online_enabled=lambda: self._app_settings.virustotal_autoquery,
         )
         self.history_view = HistoryView(
             nb,
@@ -285,15 +327,27 @@ class HashToolApp(tk.Tk):
             self.notebook.select(self.trust_view)  # type: ignore[union-attr]
         except (tk.TclError, AttributeError):
             pass
-        self.trust_view._set_selected_path(path)  # noqa: SLF001 — same package
-        self.trust_view._on_scan()                # noqa: SLF001
+        # One API that either starts a scan of *this* path or reports why it
+        # could not. Previously this set the path and then called _on_scan()
+        # unconditionally, so a history entry whose file had been deleted
+        # re-scanned whatever was selected before.
+        if not self.trust_view.rescan_path(path):  # noqa: SLF001 — same package
+            messagebox.showwarning(
+                "Dosya bulunamadı",
+                f"Bu geçmiş kaydındaki dosya artık yok:\n{path}\n\n"
+                "Tarama başlatılmadı.",
+            )
 
     def _on_settings_changed(self, new_settings: AppSettings) -> None:
         self._app_settings = new_settings
         # Persist the legacy raw-dict language slot too so the menu
         # bar's prefix-aware rebuild keeps working.
+        # AppSettings.save() (in the settings view) has already persisted
+        # everything. Writing our startup snapshot back here is what used to
+        # revert the user's privacy choice — keep the in-memory copy in sync
+        # instead, and do not touch the disk again.
         self._settings["language"] = new_settings.language
-        save_settings(self._settings)
+        self._settings[KEY_VT_AUTOQUERY] = new_settings.virustotal_autoquery
         # Refresh the history limit on the live manager.
         self._history_manager = HistoryManager(
             history_path(), limit=new_settings.history_limit
@@ -303,6 +357,8 @@ class HashToolApp(tk.Tk):
             self.history_view.refresh()
         if self.trust_view is not None:
             self.trust_view._history = self._history_manager  # noqa: SLF001
+            # Reflect a changed privacy preference on the main screen at once.
+            self.trust_view._refresh_online_state()  # noqa: SLF001
 
         # If the language was changed via the Settings tab, rebuild the
         # chrome live — otherwise the new locale would only kick in on
@@ -326,16 +382,69 @@ class HashToolApp(tk.Tk):
     # ------------------------------------------------------------------
     # Language switching — tear down chrome, rebuild in the new locale.
     # ------------------------------------------------------------------
+    def schedule(self, delay_ms: int, callback, *args):
+        """
+        Register an ``after()`` callback so it can be cancelled on teardown.
+
+        Every scheduled script must go through here. Tk keeps running a
+        pending after() script once its widget is destroyed and then reports
+        `invalid command name ...` on stderr — harmless-looking noise that
+        hides real errors and, in a frozen build, surfaces as a crash dialog.
+        """
+        handle: list[str] = []
+
+        def _run(*inner):
+            self._after_ids.discard(handle[0] if handle else "")
+            return callback(*inner)
+
+        after_id = self.after(delay_ms, _run, *args)
+        handle.append(after_id)
+        self._after_ids.add(after_id)
+        return after_id
+
+    def _cancel_scheduled_callbacks(self) -> None:
+        for after_id in list(self._after_ids):
+            try:
+                self.after_cancel(after_id)
+            except tk.TclError:  # pragma: no cover - already gone
+                pass
+        self._after_ids.clear()
+
+    def _shutdown_active_scans(self) -> None:
+        """Cancel in-flight trust scans so late callbacks hit no live widgets."""
+        if self.trust_view is not None:
+            try:
+                self.trust_view.shutdown()
+            except Exception:
+                log.exception("trust view shutdown failed")
+
+    def destroy(self) -> None:  # type: ignore[override]
+        # Tk tears the widgets down here; a worker delivering afterwards would
+        # otherwise raise from a dead callback.
+        self._shutdown_active_scans()
+        self._cancel_scheduled_callbacks()
+        super().destroy()
+
     def _switch_language(self, lang: str) -> None:
         if lang == get_language():
             return
         if self._worker is not None and self._worker.is_alive():
             messagebox.showinfo(t("status.busy_title"), t("status.busy_body"))
             return
+        if self.trust_view is not None and self.trust_view.is_busy:
+            # Rebuilding the chrome destroys the widgets a running scan will
+            # call back into; make the user wait rather than crash later.
+            messagebox.showinfo(t("status.busy_title"), t("status.busy_body"))
+            return
+        # The notebook (and the trust view inside it) is about to be rebuilt.
+        self._shutdown_active_scans()
 
         set_language(lang)
         self._settings["language"] = lang
-        save_settings(self._settings)
+        try:
+            save_settings(self._settings)
+        except SettingsError as exc:
+            messagebox.showwarning("Ayarlar", f"Dil tercihi kaydedilemedi: {exc}")
 
         # Capture which tab was active so the user doesn't lose context.
         active = 0
@@ -389,7 +498,7 @@ class HashToolApp(tk.Tk):
         self.progress["value"] = 0
         self._worker = _Worker(target)
         self._worker.start()
-        self.after(POLL_INTERVAL_MS, self._poll, on_done, on_error, on_progress)
+        self.schedule(POLL_INTERVAL_MS, self._poll, on_done, on_error, on_progress)
 
     def _poll(
         self,
@@ -420,7 +529,7 @@ class HashToolApp(tk.Tk):
                     messagebox.showerror(t("status.error"), str(msg.payload))
                 return
         if worker.is_alive():
-            self.after(POLL_INTERVAL_MS, self._poll, on_done, on_error, on_progress)
+            self.schedule(POLL_INTERVAL_MS, self._poll, on_done, on_error, on_progress)
         else:
             self._finish(t("status.ready"))
 
@@ -551,15 +660,20 @@ class HashTab(_BaseTab):
             def on_progress(event: ProgressEvent) -> None:
                 emit(_Message("progress", event))
 
-            manifest = build_manifest_for_folder(
-                target, algorithm=algo, on_progress=on_progress
-            )
             saved_to = output or str(Path(target).with_name("manifest.json"))
-            manifest.save(saved_to)
+            build = build_manifest_for_folder(
+                target, algorithm=algo, on_progress=on_progress, exclude=[saved_to]
+            )
+            manifest = build.manifest
+            # Only a complete build produces a manifest at the expected path;
+            # BuildResult.save() refuses otherwise, so we never write first
+            # and warn afterwards.
+            written = build.save(saved_to) if build.complete else None
             return {
                 "mode": "folder",
+                "build": build,
                 "count": len(manifest.entries),
-                "output": saved_to,
+                "output": str(written) if written else None,
             }
 
         def show_progress(event: ProgressEvent) -> None:
@@ -583,7 +697,29 @@ class HashTab(_BaseTab):
                 self._append(t("hash.log.saved", path=result["output"]))
         else:
             self._append(t("hash.log.count", count=result["count"]))
-            self._append(t("hash.log.saved", path=result["output"]))
+            if result["output"]:
+                self._append(t("hash.log.saved", path=result["output"]))
+            build = result.get("build")
+            if build is not None and not build.complete:
+                # Never announce a clean "manifest created" for a folder we
+                # could not read in full — the gaps are exactly where an
+                # unnoticed change would hide.
+                detail = (
+                    f"{len(build.skipped)} dosya atlandı, "
+                    f"{len(build.changed_during_scan)} dosya tarama sırasında değişti."
+                )
+                self._append(f"\n⚠ TARAMA TAMAMLANAMADI — {detail}\n")
+                self._append("    Manifest YAZILMADI.\n")
+                for rel, reason in build.errors[:10]:
+                    self._append(f"    atlandı: {rel} -> {reason}\n")
+                messagebox.showwarning(
+                    "Manifest oluşturulmadı",
+                    "Klasörün tamamı taranamadığı için manifest "
+                    "kaydedilmedi.\n\n" + detail
+                    + "\n\nEksik bir manifest, taranamayan dosyaları sonsuza "
+                    "kadar 'değişmemiş' gösterirdi.",
+                )
+                return
         self._append(t("hash.log.done"))
 
     def _append(self, text: str) -> None:
@@ -686,11 +822,29 @@ class VerifyTab(_BaseTab):
                   path=_shorten(event.path))
             )
 
+        def show_error(exc: Exception) -> None:
+            if isinstance(exc, ManifestIntegrityError):
+                # A tampered/unverifiable manifest is a security event, not a
+                # generic failure — give it its own unmistakable dialog.
+                messagebox.showerror(
+                    "Manifest Bütünlük Hatası",
+                    f"{exc}\n\n"
+                    "Doğrulama YAPILMADI. Bu manifest dosyası değiştirilmiş "
+                    "olabilir; sonuçlara güvenmeyin.",
+                )
+                self.summary.delete("1.0", "end")
+                self.summary.insert(
+                    "end",
+                    "✖ Manifest imzası doğrulanamadı — doğrulama durduruldu.\n",
+                )
+                return
+            messagebox.showerror(t("verify.err_title"), str(exc))
+
         self.app.run_async(
             work,
             status=t("verify.running"),
             on_done=self._on_done,
-            on_error=lambda exc: messagebox.showerror(t("verify.err_title"), str(exc)),
+            on_error=show_error,
             on_progress=show_progress,
         )
 
@@ -704,10 +858,21 @@ class VerifyTab(_BaseTab):
         for key in ("total_scanned", "unchanged", "modified", "new", "missing", "errors"):
             label = t(f"verify.summary.{key}")
             self.summary.insert("end", f"  {label:<18}: {summary[key]}\n")
-        self.summary.insert(
-            "end",
-            "\n" + (t("verify.result.clean") if result.is_clean else t("verify.result.dirty")) + "\n",
-        )
+
+        # Manifest provenance is shown as its own line: "files match" and
+        # "the manifest can be trusted" are separate facts, and a match
+        # against an unverified manifest must not read as an unqualified
+        # "clean" result.
+        headline, badge = describe_result(result)
+        self.summary.insert("end", f"\n{headline.icon} {headline.text}\n")
+        self.summary.insert("end", f"\n{badge.icon} Manifest güveni: {badge.label}\n")
+        self.summary.insert("end", f"   {badge.detail}\n")
+        if not badge.provenance_established:
+            self.summary.insert(
+                "end",
+                "   İpucu: imzalı bir manifesti güvendiğiniz genel anahtarla "
+                "doğrulamak için CLI'da 'verify --trusted-key <hex>' kullanın.\n",
+            )
         if saved_to:
             self.summary.insert("end", t("verify.log.report_saved", path=saved_to))
 

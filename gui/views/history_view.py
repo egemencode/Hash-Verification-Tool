@@ -12,7 +12,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable, Optional
 
-from core.history_manager import HistoryEntry, HistoryManager
+from core.history_manager import HistoryEntry, HistoryManager, HistoryStoreError
 from core.risk_engine import RiskLevel
 
 
@@ -124,7 +124,14 @@ class HistoryView(ttk.Frame):
             "Tüm tarama geçmişini silmek istediğinize emin misiniz?",
         ):
             return
-        self._history.clear()
+        try:
+            self._history.clear()
+        except HistoryStoreError as exc:
+            # Do not blank the in-memory list if the disk write failed —
+            # tell the user the history is still on disk.
+            messagebox.showerror("Geçmiş temizlenemedi", str(exc))
+            self.refresh()
+            return
         self.refresh()
 
     def _on_double_click(self, _event: tk.Event) -> None:

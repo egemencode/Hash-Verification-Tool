@@ -6,12 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.support import DiagnosticTempDir
 from core.local_verify import LocalVerifyStatus, LocalVerifyStore
 
 
 class LocalVerifyStoreTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = DiagnosticTempDir()
         self.store_path = Path(self.tmp.name) / "known.json"
         self.file_path = Path(self.tmp.name) / "sample.txt"
         self.file_path.write_text("hello", encoding="utf-8")

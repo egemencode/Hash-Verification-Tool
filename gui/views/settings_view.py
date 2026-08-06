@@ -14,7 +14,8 @@ from typing import Callable
 
 from core.vt_client import VirusTotalClient, VTStatus
 from gui.i18n import SUPPORTED_LANGUAGES
-from utils.settings import AppSettings
+from core.trust_pipeline import PRIVACY_NOTICE
+from utils.settings import AppSettings, SettingsError
 
 
 class SettingsView(ttk.Frame):
@@ -26,7 +27,10 @@ class SettingsView(ttk.Frame):
         on_settings_changed: Callable[[AppSettings], None],
     ) -> None:
         super().__init__(parent, padding=18)
-        self._settings = settings
+        # Edit a DRAFT: the live settings object (and the VirusTotal client
+        # built from it) must not change until the write to disk succeeds.
+        self._live_settings = settings
+        self._settings = settings.copy_for_edit()
         self._on_settings_changed = on_settings_changed
         self._build()
 
@@ -43,8 +47,9 @@ class SettingsView(ttk.Frame):
             vt_frame,
             text=(
                 "VirusTotal hesabınızdan ücretsiz bir API anahtarı alıp aşağıya yapıştırın.\n"
-                "Anahtar yalnızca bu bilgisayarda, ayar dosyasında saklanır.\n"
-                "Dosya hiçbir koşulda VirusTotal'a yüklenmez — sadece SHA-256 ile sorgu yapılır."
+                "Anahtar bu bilgisayarda, işletim sisteminin güvenli deposunda (DPAPI) saklanır.\n"
+                + PRIVACY_NOTICE + "\n"
+                "Çevrimiçi kontrol siz açana kadar kapalıdır."
             ),
             justify="left",
             foreground="#444",
@@ -125,8 +130,19 @@ class SettingsView(ttk.Frame):
         # typed something out of bounds manually.
         self._settings.history_limit = max(5, min(500, limit))
         self._settings.language = self.language_var.get()
-        self._settings.save()
+        try:
+            self._settings.save()
+        except SettingsError as exc:
+            # Never claim success on a failed/insecure write, and never let a
+            # failed attempt leak into the running configuration: rebuild the
+            # draft from the still-authoritative live settings.
+            self._settings = self._live_settings.copy_for_edit()
+            messagebox.showerror("Ayarlar kaydedilemedi", str(exc))
+            return
+        # Only now does the draft become the live configuration.
+        self._live_settings = self._settings
         self._on_settings_changed(self._settings)
+        self._settings = self._live_settings.copy_for_edit()
         messagebox.showinfo("Ayarlar Kaydedildi", "Ayarlarınız başarıyla kaydedildi.")
 
     def _on_test(self) -> None:

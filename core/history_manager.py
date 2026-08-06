@@ -15,6 +15,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from core.atomic_io import corrupt_reason, quarantine_corrupt_file, write_json_atomic
+
+
+class HistoryStoreError(Exception):
+    """Raised when scan history cannot be persisted."""
+
 
 DEFAULT_HISTORY_LIMIT: int = 50
 
@@ -65,8 +71,40 @@ class HistoryManager:
         self._limit = max(1, int(limit))
         self._entries: list[HistoryEntry] = []
         self._loaded = False
+        # Set when a corrupt store was moved aside, so the UI can tell the
+        # user their history was not silently discarded.
+        self.load_warning: Optional[str] = None
+        # True when the existing file could NOT be preserved. While set, every
+        # write is refused so the unreadable original bytes stay on disk and
+        # remain recoverable by hand.
+        self.write_disabled: bool = False
+        self.write_disabled_reason: str = ""
 
     # ------------------------------------------------------------------
+    def _handle_corrupt(self, reason: str) -> None:
+        """Quarantine an unreadable store rather than overwriting it."""
+        moved = quarantine_corrupt_file(self._path)
+        if moved is not None:
+            self.load_warning = (
+                f"Geçmiş dosyası okunamadı ({reason}). Bozuk dosya "
+                f"'{moved.name}' olarak saklandı; yeni bir geçmiş başlatıldı."
+            )
+        else:
+            self._disable_writes(
+                f"Geçmiş dosyası okunamadı ({reason}) ve yedeklenemedi: "
+                f"{self._path}. Mevcut veriyi kaybetmemek için geçmiş kaydı "
+                "devre dışı bırakıldı; dosyayı elle taşıyın veya silin."
+            )
+
+    def _disable_writes(self, reason: str) -> None:
+        self.write_disabled = True
+        self.write_disabled_reason = reason
+        self.load_warning = reason
+
+    def _guard_writable(self) -> None:
+        if self.write_disabled:
+            raise HistoryStoreError(self.write_disabled_reason)
+
     def _load(self) -> None:
         if self._loaded:
             return
@@ -76,12 +114,26 @@ class HistoryManager:
         try:
             with self._path.open("r", encoding="utf-8") as fh:
                 raw = json.load(fh)
-        except (OSError, json.JSONDecodeError):
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            # Binary garbage raises UnicodeDecodeError, which is not a
+            # JSONDecodeError — both mean "unreadable content".
+            self._handle_corrupt(corrupt_reason(exc))
+            return
+        except OSError as exc:
+            # Do NOT quarantine on a read error — the file may hold perfectly
+            # good data and merely be locked. But we must also refuse to write:
+            # saving now would replace content we were never able to read.
+            self._disable_writes(
+                f"Geçmiş dosyası açılamadı ({exc.__class__.__name__}): {self._path}. "
+                "Var olan kayıtların üzerine yazmamak için geçmiş kaydı devre dışı."
+            )
             return
         if not isinstance(raw, dict):
+            self._handle_corrupt("beklenmeyen biçim")
             return
         items = raw.get("entries", [])
         if not isinstance(items, list):
+            self._handle_corrupt("'entries' listesi geçersiz")
             return
         self._entries = [
             HistoryEntry.from_dict(item)
@@ -90,26 +142,35 @@ class HistoryManager:
         ]
 
     def _save(self) -> None:
+        # Never overwrite data we failed to preserve.
+        self._guard_writable()
+        payload = {
+            "schema": "trust-history/1.0",
+            "updated_at": _now_iso(),
+            "entries": [entry.to_dict() for entry in self._entries],
+        }
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            payload = {
-                "schema": "trust-history/1.0",
-                "updated_at": _now_iso(),
-                "entries": [entry.to_dict() for entry in self._entries],
-            }
-            with self._path.open("w", encoding="utf-8") as fh:
-                json.dump(payload, fh, indent=2, ensure_ascii=False)
-        except OSError:
-            pass
+            write_json_atomic(self._path, payload)
+        except OSError as exc:
+            # Surface write failures instead of pretending the save worked.
+            raise HistoryStoreError(
+                f"Geçmiş dosyası yazılamadı: {self._path}: {exc}"
+            ) from exc
 
     # ------------------------------------------------------------------
     def add(self, entry: HistoryEntry) -> None:
         self._load()
+        backup = list(self._entries)
         # Newest first, capped to *limit*.
         self._entries.insert(0, entry)
         if len(self._entries) > self._limit:
             self._entries = self._entries[: self._limit]
-        self._save()
+        try:
+            self._save()
+        except HistoryStoreError:
+            # Roll back so the in-memory list matches what is on disk.
+            self._entries = backup
+            raise
 
     def all(self) -> list[HistoryEntry]:
         self._load()
@@ -117,8 +178,13 @@ class HistoryManager:
 
     def clear(self) -> None:
         self._load()
-        self._entries.clear()
-        self._save()
+        backup = list(self._entries)
+        self._entries = []
+        try:
+            self._save()
+        except HistoryStoreError:
+            self._entries = backup
+            raise
 
     def find_latest(self, file_path: str) -> Optional[HistoryEntry]:
         self._load()

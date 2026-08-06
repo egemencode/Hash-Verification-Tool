@@ -11,11 +11,17 @@ meaningful "last saved" line.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
+
+from core.atomic_io import corrupt_reason, quarantine_corrupt_file, write_json_atomic
+
+
+class LocalStoreError(Exception):
+    """Raised when the local fingerprint store cannot be persisted."""
 
 
 class LocalVerifyStatus(str, Enum):
@@ -36,18 +42,25 @@ class LocalRecord:
     size: int
     recorded_at: str
     last_seen_at: str
+    # Audit trail of superseded baselines, oldest first. Replacing a baseline
+    # is destructive, so the previous value is kept rather than overwritten.
+    previous: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "LocalRecord":
+        raw_previous = data.get("previous")
         return cls(
             path=str(data.get("path", "")),
             sha256=str(data.get("sha256", "")),
             size=int(data.get("size") or 0),
             recorded_at=str(data.get("recorded_at", "")),
             last_seen_at=str(data.get("last_seen_at", "")),
+            previous=[p for p in raw_previous if isinstance(p, dict)]
+            if isinstance(raw_previous, list)
+            else [],
         )
 
 
@@ -87,6 +100,13 @@ class LocalVerifyStore:
         self._path = Path(store_path)
         self._records: dict[str, LocalRecord] = {}
         self._loaded = False
+        # Set when a corrupt store was quarantined instead of being silently
+        # replaced by an empty one.
+        self.load_warning: Optional[str] = None
+        # True when the existing file could NOT be preserved. While set, every
+        # write is refused so the original bytes stay recoverable on disk.
+        self.write_disabled: bool = False
+        self.write_disabled_reason: str = ""
 
     # ------------------------------------------------------------------
     # IO
@@ -100,33 +120,73 @@ class LocalVerifyStore:
         try:
             with self._path.open("r", encoding="utf-8") as fh:
                 raw = json.load(fh)
-        except (OSError, json.JSONDecodeError):
-            # Corrupt store should never crash the app — we just
-            # start fresh.
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            # A corrupt store must never crash the app — but it must not be
+            # silently overwritten with an empty one either. Move it aside so
+            # the fingerprints stay recoverable, and tell the caller.
+            # (Binary garbage raises UnicodeDecodeError, not JSONDecodeError.)
+            self._quarantine(corrupt_reason(exc))
+            return
+        except OSError as exc:
+            # Readable-but-locked: keep the file intact and refuse to write,
+            # rather than silently starting an empty store that would later
+            # overwrite records we never managed to read.
+            self._disable_writes(
+                f"Yerel parmak izi kaydı açılamadı ({exc.__class__.__name__}): "
+                f"{self._path}. Var olan kayıtların üzerine yazmamak için "
+                "kayıt yazma devre dışı."
+            )
             return
         if not isinstance(raw, dict):
+            self._quarantine("beklenmeyen biçim")
             return
         entries = raw.get("records", {})
         if not isinstance(entries, dict):
+            self._quarantine("'records' bölümü geçersiz")
             return
         for key, value in entries.items():
             if isinstance(value, dict):
                 self._records[key] = LocalRecord.from_dict({**value, "path": key})
 
+    def _quarantine(self, reason: str) -> None:
+        moved = quarantine_corrupt_file(self._path)
+        if moved is not None:
+            self.load_warning = (
+                f"Yerel parmak izi kaydı okunamadı ({reason}). Bozuk dosya "
+                f"'{moved.name}' olarak saklandı; yeni bir kayıt başlatıldı."
+            )
+        else:
+            self._disable_writes(
+                f"Yerel parmak izi kaydı okunamadı ({reason}) ve yedeklenemedi: "
+                f"{self._path}. Mevcut veriyi kaybetmemek için kayıt yazma "
+                "devre dışı bırakıldı; dosyayı elle taşıyın veya silin."
+            )
+
+    def _disable_writes(self, reason: str) -> None:
+        self.write_disabled = True
+        self.write_disabled_reason = reason
+        self.load_warning = reason
+
+    def _guard_writable(self) -> None:
+        if self.write_disabled:
+            raise LocalStoreError(self.write_disabled_reason)
+
     def _save(self) -> None:
+        # Never overwrite data we failed to preserve.
+        self._guard_writable()
+        payload = {
+            "schema": "trust-store/1.0",
+            "updated_at": _now_iso(),
+            "records": {k: v.to_dict() for k, v in self._records.items()},
+        }
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            payload = {
-                "schema": "trust-store/1.0",
-                "updated_at": _now_iso(),
-                "records": {k: v.to_dict() for k, v in self._records.items()},
-            }
-            with self._path.open("w", encoding="utf-8") as fh:
-                json.dump(payload, fh, indent=2, ensure_ascii=False)
-        except OSError:
-            # Best-effort persistence — never propagate disk errors
-            # from a background "save fingerprint" action.
-            pass
+            write_json_atomic(self._path, payload)
+        except OSError as exc:
+            # Do NOT swallow: a "saved" that silently failed is worse than an
+            # error the caller (and the user) can react to.
+            raise LocalStoreError(
+                f"Yerel kayıt dosyası yazılamadı: {self._path}: {exc}"
+            ) from exc
 
     # ------------------------------------------------------------------
     # Public API
@@ -177,15 +237,36 @@ class LocalVerifyStore:
         digest = (sha256 or "").lower().strip()
 
         previous = self._records.get(key)
+        history = list(previous.previous) if previous else []
+        if previous is not None and previous.sha256.lower() != digest:
+            # Keep what we are replacing: the old baseline is the only record
+            # of what this file used to be.
+            history.append(
+                {
+                    "sha256": previous.sha256,
+                    "size": previous.size,
+                    "recorded_at": previous.recorded_at,
+                    "replaced_at": now,
+                }
+            )
         record = LocalRecord(
             path=key,
             sha256=digest,
             size=int(size),
             recorded_at=previous.recorded_at if previous else now,
             last_seen_at=now,
+            previous=history,
         )
         self._records[key] = record
-        self._save()
+        try:
+            self._save()
+        except LocalStoreError:
+            # Roll back the in-memory change so it matches the disk state.
+            if previous is not None:
+                self._records[key] = previous
+            else:
+                self._records.pop(key, None)
+            raise
         return LocalVerifyResult(
             status=LocalVerifyStatus.NEW,
             record=record,
@@ -202,8 +283,12 @@ class LocalVerifyStore:
         self._load()
         key = _normalise(file_path)
         if key in self._records:
-            del self._records[key]
-            self._save()
+            removed = self._records.pop(key)
+            try:
+                self._save()
+            except LocalStoreError:
+                self._records[key] = removed
+                raise
             return True
         return False
 

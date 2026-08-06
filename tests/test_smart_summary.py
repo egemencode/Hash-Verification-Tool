@@ -12,7 +12,7 @@ from core.vt_client import VTAnalysisStats, VTLookupResult, VTStatus
 
 
 def _vt(stats: VTAnalysisStats, status: VTStatus = VTStatus.OK) -> VTLookupResult:
-    return VTLookupResult(status=status, hash_value="a" * 64, stats=stats, total_engines=70)
+    return VTLookupResult(status=status, hash_value="a" * 64, stats=stats, total_engines=70, analysing_engines=70)
 
 
 class SmartSummaryTests(unittest.TestCase):
