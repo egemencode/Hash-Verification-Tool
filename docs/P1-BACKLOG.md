@@ -116,31 +116,27 @@ tespit et. Atıf yapılırsa `_classify_leftovers`'a gerekçeli bir istisna
 eklenebilir; yapılamazsa kapı olduğu gibi kalmalı — aralıklı kırmızı, sessiz
 yeşilden iyidir.
 
-## 9. Gelişmiş sekmelerinde iptal yok ve kapanışta thread terk ediliyor
+## 9. ~~Gelişmiş sekmelerinde iptal yok ve kapanışta thread terk ediliyor~~ — KAPANDI
 
-Madde 3 Trust Check için kapandı; Gelişmiş > Hash / Verify / Report sekmeleri
-hâlâ iptal edilemiyor. Üçü de tek bir çıkış noktasından geçiyor
-(`HashToolApp.run_async`, `gui/app.py:488`), yani iptal oraya eklenirse üçü
-birden kazanır.
+`_Worker` artık kendi iptal jetonunu taşıyor ve hedefe `(emit, cancel)` geçiyor;
+durum çubuğuna İptal düğmesi eklendi (tek worker yuvası Hash / Verify / Report
+üçünü de beslediği için tek düğme hangisi çalışıyorsa onu durduruyor);
+`build_manifest_for_folder` ve `Verifier.verify` çağrılarına `cancel=` geçiliyor;
+iptal edilen koşu ayrı bir `"cancelled"` terminal mesajı üretiyor (yoksa
+`_on_done` eksik build'i "başarısız tarama" diye raporluyordu).
 
-Eksikler:
+**Asıl kusur da kapandı:** `destroy()` artık `_shutdown_background_worker()`
+çağırıyor — iptal + 5 sn bounded join. Öncesinde pencere kapatılınca worker
+terk ediliyordu ve o worker `build.save()`'i kendisi çağırdığı için **kullanıcı
+vazgeçtiği hâlde manifest diske yazılıyordu**; bir hash doğrulama aracında
+terk edilmiş bir taramanın referans dosyasına dönüşmesi demekti.
 
-- `_Worker` (`gui/app.py:108-147`) bir daemon thread + kuyruk; **iptal jetonu
-  yok**, session kimliği yok, join yok.
-- Çekirdek API'ler iptali zaten destekliyor ama GUI geçmiyor:
-  `build_manifest_for_folder(..., cancel=...)` (`core/manifest_manager.py`,
-  her dosyadan önce yoklanıyor) ve `Verifier.verify(..., cancel=...)`
-  (`core/verifier.py`). Sözleşme `() -> bool` yoklanan yüklem; bir
-  `ScanSession` `cancel=lambda: session.cancelled` ile birebir uyuyor.
-- **Asıl kusur:** `HashToolApp.destroy()` yalnız `_shutdown_active_scans()`
-  (Trust Check) ve `_cancel_scheduled_callbacks()` çağırıyor; `self._worker`
-  ne iptal ediliyor ne join'leniyor. Yani çalışan bir klasör hash'i sırasında
-  pencere kapatılırsa thread daemon olarak **terk ediliyor** — Trust Check
-  için düzeltilmiş olan sınıfın aynısı burada açık.
-- Çalıştır düğmeleri anonim yerel değişken (`gui/app.py:616-618, 796-798`),
-  `self`'e atanmıyor; hiçbir kod onları pasifleştiremiyor. Bir "meşgul"
-  girişi yok — kopyalanacak desen `TrustCheckView._set_busy`.
+Testler: `tests/test_gui_advanced_cancel.py` (4 davranış testi), dördü de
+`tools/verify_fix_coverage.py` ile tutuluyor.
 
-**Yapılacak:** `run_async`'e iptal jetonu; durum çubuğuna (pack kullanan
-`_build_statusbar`) İptal düğmesi; iki çekirdek çağrıya `cancel=` geçir;
-`destroy()` içinde bounded join. Önce kırmızı test.
+> **Kalan:** Çalıştır düğmeleri hâlâ anonim yerel değişken
+> (`gui/app.py`, HashTab/VerifyTab `_build`), `self`'e atanmadığı için tarama
+> sırasında pasifleştirilemiyor. `run_async` tekrar basmayı zaten "Meşgul"
+> diyaloğuyla reddediyor, yani veri güvenliği sorunu değil; sekmelerin
+> `TrustCheckView._set_busy` gibi bir meşgul girişine kavuşması bir
+> kullanılabilirlik işi olarak duruyor.

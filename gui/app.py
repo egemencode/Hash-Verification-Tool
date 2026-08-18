@@ -109,19 +109,39 @@ class _Worker:
     """
     Run a callable on a daemon thread and expose results via a queue.
 
-    The *target* receives a single ``emit`` callback so it can push
-    progress updates back to the UI thread (e.g. ``emit(_Message(
-    "progress", event))``). The worker itself enqueues the terminal
-    ``"done"`` / ``"error"`` messages once *target* returns / raises.
+    The *target* receives an ``emit`` callback so it can push progress updates
+    back to the UI thread (e.g. ``emit(_Message("progress", event))``) and a
+    ``cancel`` predicate it is expected to consult. The worker itself enqueues
+    the terminal ``"done"`` / ``"error"`` messages once *target* returns or
+    raises.
+
+    Cancellation is cooperative and the token is the worker's own, not the
+    caller's: whoever holds the worker can stop it without having to reach
+    back into the closure that is running.
     """
 
-    def __init__(self, target: Callable[[Callable[["_Message"], None]], Any]) -> None:
+    def __init__(
+        self,
+        target: Callable[[Callable[["_Message"], None], Callable[[], bool]], Any],
+    ) -> None:
         self._queue: "queue.Queue[_Message]" = queue.Queue()
         self._target = target
+        self._cancel = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self) -> None:
         self._thread.start()
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancel.is_set()
+
+    def join(self, timeout: float) -> None:
+        """Bounded by construction: the target polls the token per file."""
+        self._thread.join(timeout)
 
     def drain(self) -> list["_Message"]:
         out: list[_Message] = []
@@ -140,8 +160,13 @@ class _Worker:
 
     def _run(self) -> None:
         try:
-            result = self._target(self._emit)
-            self._queue.put(_Message("done", result))
+            result = self._target(self._emit, self._cancel.is_set)
+            # A cancelled run has not produced a result the caller asked for,
+            # and reporting "done" would let the UI render it as one.
+            if self._cancel.is_set():
+                self._queue.put(_Message("cancelled", None))
+            else:
+                self._queue.put(_Message("done", result))
         except Exception as exc:
             log.exception("worker failed")
             self._queue.put(_Message("error", exc))
@@ -382,6 +407,13 @@ class HashToolApp(tk.Tk):
         # as soon as the worker starts emitting ProgressEvents.
         self.progress = ttk.Progressbar(bar, mode="determinate", length=200, maximum=100)
         self.progress.pack(side="right", padx=8, pady=4)
+        # In the status bar rather than on a tab: one worker slot serves Hash,
+        # Verify and Report, so one control stops whichever is running.
+        self.cancel_button = ttk.Button(
+            bar, text=t("btn.cancel"), command=self._on_cancel
+        )
+        self.cancel_button.pack(side="right", padx=(0, 4), pady=4)
+        self.cancel_button.state(["disabled"])
         self._statusbar = bar
 
     # ------------------------------------------------------------------
@@ -423,10 +455,28 @@ class HashToolApp(tk.Tk):
             except Exception:
                 log.exception("trust view shutdown failed")
 
+    def _shutdown_background_worker(self) -> None:
+        """
+        Stop the Hash / Verify / Report worker and wait for it to notice.
+
+        Not merely tidiness. That worker is what writes the manifest — it calls
+        ``build.save()`` itself — so a window closed mid-scan used to leave a
+        reference file on disk for a scan the user had walked away from. The
+        join is bounded because the token is polled once per file.
+        """
+        worker = self._worker
+        if worker is None:
+            return
+        worker.cancel()
+        if worker.is_alive():
+            worker.join(timeout=5.0)
+        self._worker = None
+
     def destroy(self) -> None:  # type: ignore[override]
         # Tk tears the widgets down here; a worker delivering afterwards would
         # otherwise raise from a dead callback.
         self._shutdown_active_scans()
+        self._shutdown_background_worker()
         self._cancel_scheduled_callbacks()
         super().destroy()
 
@@ -502,8 +552,25 @@ class HashToolApp(tk.Tk):
         self.progress.configure(mode="determinate", maximum=100)
         self.progress["value"] = 0
         self._worker = _Worker(target)
+        self.cancel_button.state(["!disabled"])
         self._worker.start()
         self.schedule(POLL_INTERVAL_MS, self._poll, on_done, on_error, on_progress)
+
+    def _on_cancel(self) -> None:
+        """
+        Stop whichever operation is running.
+
+        Cooperative: the token is polled once per file, so a large file still
+        has to finish. The button disables itself and the status line says what
+        is happening rather than claiming the work already stopped — and the
+        terminal state is announced by _poll when the worker actually returns.
+        """
+        worker = self._worker
+        if worker is None or not worker.is_alive():
+            return
+        worker.cancel()
+        self.cancel_button.state(["disabled"])
+        self.status_var.set(t("status.cancelling"))
 
     def _poll(
         self,
@@ -521,6 +588,11 @@ class HashToolApp(tk.Tk):
                 if on_progress is not None:
                     on_progress(event)
                 continue
+            if msg.kind == "cancelled":
+                # No on_done: the operation produced nothing the user asked
+                # for, and the tabs' _on_done render a completed result.
+                self._finish(t("status.cancelled"))
+                return
             if msg.kind == "done":
                 self.progress["value"] = 100
                 self._finish(t("status.ready"))
@@ -542,6 +614,7 @@ class HashToolApp(tk.Tk):
         self.progress["value"] = 0
         self.status_var.set(status)
         self._worker = None
+        self.cancel_button.state(["disabled"])
 
     # ------------------------------------------------------------------
     def _show_about(self) -> None:
@@ -691,7 +764,9 @@ class HashTab(_BaseTab):
 
         self._append(t("hash.log.header", mode=mode, algo=algo, target=target))
 
-        def work(emit: Callable[[_Message], None]) -> dict[str, Any]:
+        def work(
+            emit: Callable[[_Message], None], cancel: Callable[[], bool]
+        ) -> dict[str, Any]:
             if mode == "file":
                 # One read: the digest shown and the digest stored describe
                 # the same bytes. Strict only when it becomes a stored
@@ -712,7 +787,8 @@ class HashTab(_BaseTab):
                 emit(_Message("progress", event))
 
             build = build_manifest_for_folder(
-                target, algorithm=algo, on_progress=on_progress, exclude=[saved_to]
+                target, algorithm=algo, on_progress=on_progress,
+                exclude=[saved_to], cancel=cancel,
             )
             manifest = build.manifest
             # Only a complete build produces a manifest at the expected path;
@@ -850,13 +926,17 @@ class VerifyTab(_BaseTab):
 
         report_path = self.report_var.get().strip() or None
 
-        def work(emit: Callable[[_Message], None]) -> dict:
+        def work(
+            emit: Callable[[_Message], None], cancel: Callable[[], bool]
+        ) -> dict:
             manifest = Manifest.load(manifest_path)
 
             def on_progress(event: ProgressEvent) -> None:
                 emit(_Message("progress", event))
 
-            result = Verifier(manifest).verify(folder, on_progress=on_progress)
+            result = Verifier(manifest).verify(
+                folder, on_progress=on_progress, cancel=cancel
+            )
             saved_to = None
             if report_path:
                 if report_path.lower().endswith(".csv"):
@@ -1017,7 +1097,11 @@ class ReportTab(_BaseTab):
         fmt = self.format_var.get()
         explicit_out = self.output_var.get().strip() or None
 
-        def work(emit: Callable[[_Message], None]) -> Path:
+        # Report conversion is a single file operation with no per-item loop to
+        # break out of, so it accepts the token and does not consult it.
+        def work(
+            emit: Callable[[_Message], None], cancel: Callable[[], bool]
+        ) -> Path:
             if explicit_out:
                 out = explicit_out
             else:

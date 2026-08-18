@@ -49,6 +49,12 @@ the verdict won.
   (incomplete scan), `7` (cancelled).
 - `ScanState` and a `cancel` predicate for `build_manifest_for_folder` and
   `Verifier.verify`.
+- **A Cancel button for the Advanced tabs, in the status bar.** One worker slot
+  serves Hash, Verify and Report, so one control stops whichever is running.
+  The token is polled once per file, and a cancelled run reports a distinct
+  terminal state instead of arriving as a completed one — otherwise the
+  completion handler described a deliberate cancel as a scan that failed and
+  told the user to investigate.
 - **A Cancel button on the Trust Check screen.** The cancellation machinery was
   already there — a session carries a token, the pipeline polls it at every
   stage boundary — but nothing the user could press fired it, so a scan of the
@@ -90,6 +96,10 @@ the verdict won.
   missed would verify as "unchanged" forever.
 - A superseded or cancelled GUI scan could render its verdict under a different
   file; three scheduled-callback leaks produced Tcl errors on teardown.
+- Closing the window during a folder hash abandoned the worker thread. That
+  thread is what writes the manifest — it calls `save()` itself — so walking
+  away from a scan still produced a reference file on disk. The window now
+  cancels the worker and waits for it, bounded.
 - Drag-and-drop decoded paths as UTF-8 with `errors="replace"`, turning
   filenames NTFS accepts (unpaired surrogates) into paths that do not exist.
   The drop hook now asks the library for `DragQueryFileW`, so a path arrives as

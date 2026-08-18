@@ -191,6 +191,37 @@ REVERTS = [
      "tests.test_gui_cancel_button.CancelButtonTests"
      ".test_cancel_is_only_usable_while_a_scan_is_running"),
 
+    # The worker is what calls build.save(), so abandoning it on close left a
+    # manifest behind for a scan the user walked away from.
+    ("closing the window stops the background worker", "gui/app.py",
+     "        self._shutdown_background_worker()\n",
+     "        pass\n",
+     "tests.test_gui_advanced_cancel.AdvancedTabCancelTests"
+     ".test_closing_the_window_does_not_leave_a_manifest_behind"),
+
+    ("folder hash honours the cancel token", "gui/app.py",
+     "                exclude=[saved_to], cancel=cancel,\n",
+     "                exclude=[saved_to],\n",
+     "tests.test_gui_advanced_cancel.AdvancedTabCancelTests"
+     ".test_pressing_cancel_stops_a_folder_hash"),
+
+    # Without a distinct terminal message a cancelled run reaches _on_done,
+    # which reports an incomplete build as a failure the user must fix.
+    ("cancelled work is not delivered as done", "gui/app.py",
+     "            if self._cancel.is_set():\n"
+     "                self._queue.put(_Message(\"cancelled\", None))\n"
+     "            else:\n"
+     "                self._queue.put(_Message(\"done\", result))\n",
+     "            self._queue.put(_Message(\"done\", result))\n",
+     "tests.test_gui_advanced_cancel.AdvancedTabCancelTests"
+     ".test_cancelling_is_not_reported_as_a_failed_scan"),
+
+    ("status-bar cancel starts disabled", "gui/app.py",
+     "        self.cancel_button.state([\"disabled\"])\n        self._statusbar = bar\n",
+     "        self._statusbar = bar\n",
+     "tests.test_gui_advanced_cancel.AdvancedTabCancelTests"
+     ".test_cancel_is_idle_when_nothing_is_running"),
+
     ("GUI reports an underivable output path", "gui/app.py",
      "        except (ValueError, OSError) as exc:\n",
      "        except ZeroDivisionError as exc:\n",

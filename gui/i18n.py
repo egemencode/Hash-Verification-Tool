@@ -22,6 +22,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "status.error": "Error.",
         "status.busy_title": "Busy",
         "status.busy_body": "Another operation is already running.",
+        # Cancellation is cooperative — the worker stops at the next file — so
+        # this is what the user sees between the click and the actual stop.
+        "status.cancelling": "Cancelling…",
+        "status.cancelled": "Cancelled — nothing was written.",
 
         # --- Menu -----------------------------------------------------------
         "menu.file": "File",
@@ -55,6 +59,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # --- Shared ---------------------------------------------------------
         "btn.browse": "Browse…",
+        "btn.cancel": "Cancel",
 
         # --- Hash tab -------------------------------------------------------
         "hash.target": "Target:",
@@ -138,6 +143,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "status.error": "Hata.",
         "status.busy_title": "Meşgul",
         "status.busy_body": "Başka bir işlem şu anda çalışıyor.",
+        "status.cancelling": "İptal ediliyor…",
+        "status.cancelled": "İptal edildi — hiçbir şey yazılmadı.",
 
         # --- Menü -----------------------------------------------------------
         "menu.file": "Dosya",
@@ -172,6 +179,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # --- Ortak ----------------------------------------------------------
         "btn.browse": "Gözat…",
+        "btn.cancel": "İptal",
 
         # --- Hash sekmesi ---------------------------------------------------
         "hash.target": "Hedef:",
