@@ -9,25 +9,40 @@ kararlarını yanlış üretmiyor; hepsi kullanılabilirlik/tutarlılık sorunu.
 > bir `ScanState.CANCELLED` terminal olayı üretiyor ve hiçbir koşulda manifest
 > olarak kaydedilmiyor. Eksik olan hâlâ **kullanıcıya görünür düğme**.
 
-## 1. Ayarlar'da "API Anahtarını Kaldır" eylemi yok
+## 1. ~~Ayarlar'da "API Anahtarını Kaldır" eylemi yok~~ — KAPANDI
 
-`AppSettings.clear_api_key()` mevcut ve tek silme yolu bu — ancak Ayarlar
-ekranında bunu çağıran bir düğme yok. Kullanıcı, alanı boşaltarak anahtarı
-silemiyor: çözülemeyen bir token korunduğu için alan boş kaydedilse bile token
-diskte kalıyor (bu, veri kaybını önlemek için bilinçli).
+Ayarlar > VirusTotal bölümüne "Anahtarı Kaldır" düğmesi eklendi: onay sorusu
+(varsayılan *hayır*), `clear_api_key()` + `save()`, başarısız yazmada draft'ı
+canlı ayarlardan yeniden kurup hatayı bildirme, ekranda sonuç.
 
-**Yapılacak:** Ayarlar > VirusTotal bölümüne "Anahtarı Kaldır" düğmesi; onay
-sorusu; `clear_api_key()` + `save()`; sonuç durumunun ekranda gösterilmesi.
+Neden gerekliydi: alanı boşaltıp kaydetmek **eşdeğer değil**. Sıradan bir
+kaydetme, çözülemeyen bir token'ı bilinçli olarak koruyor (çünkü
+"çözülemeyen"i "yok" saymak bir kullanıcının tek kopyasını yok etmişti). Bu
+doğru varsayılan, ama DPAPI bağlamı değişen kullanıcıyı (başka Windows hesabı,
+geri yüklenmiş profil) ne kullanabildiği ne kurtulabildiği bir anahtarla baş
+başa bırakıyordu — üstelik `utils/settings.py`'nin kendi uyarısı ona
+*"'Anahtarı Kaldır' diyebilirsiniz"* diyordu, **var olmayan bir düğmeyi**
+tarif ederek.
 
-## 2. Menü dili ile Ayarlar dili iki ayrı state kullanıyor
+Testler: `tests/test_gui_settings_state.py::UnreadableKeyRemovalTests`.
 
-`HashToolApp._settings` (ham dict) ve `AppSettings.language` ayrı ayrı
-tutuluyor. Menüden dil değiştirilip ardından Ayarlar > Kaydet'e basılırsa,
-Ayarlar ekranındaki draft (açılışta yüklenen dil) menüden yapılan seçimi geri
-alıyor.
+> Düğme her zaman etkin; kayıtlı anahtar yokken basmak zararsız bir işlem.
+> "Silinecek bir şey yoksa pasifleştir" kuralı, `secret_state`'i takip eden
+> ikinci bir durum daha yaratacağı için bilinçli olarak eklenmedi.
 
-**Yapılacak:** Tek authoritative dil kaynağı; Ayarlar görünümü açıldığında
-draft'ı canlı dilden tazelemek veya dili tamamen `AppSettings`'e taşımak.
+## 2. ~~Menü dili ile Ayarlar dili iki ayrı state kullanıyor~~ — KAPANDI
+
+Dil üç yerde tutuluyordu: i18n modülü, `HashToolApp._settings` (ham dict) ve
+`AppSettings.language`. `_switch_language` ilk ikisini güncelliyor, üçüncüsünü
+bırakıyordu. Ayarlar sekmesi dil değişiminde yeniden kurulduğu ve draft'ını
+`AppSettings`'ten aldığı için **bayat** dili gösteriyordu; sonraki her Kaydet
+(ör. yalnızca geçmiş limitini değiştirmek için basılan) o bayat değeri diske
+yazıp arayüzü ona döndürüyordu — kullanıcının yaptığı ve etkisini gördüğü
+seçimi sessizce geri alarak.
+
+`_switch_language` artık `self._app_settings.language`'ı da güncelliyor.
+
+Testler: `tests/test_gui_settings_state.py::LanguageStateTests`.
 
 ## 3. ~~Kullanıcıya görünür "İptal" düğmesi yok~~ — Trust Check için KAPANDI
 

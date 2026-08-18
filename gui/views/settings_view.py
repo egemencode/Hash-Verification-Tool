@@ -77,7 +77,16 @@ class SettingsView(ttk.Frame):
 
         btns = ttk.Frame(vt_frame)
         btns.grid(row=3, column=0, columnspan=3, sticky="e", pady=(12, 0))
-        ttk.Button(btns, text="Anahtarı Test Et", command=self._on_test).pack(side="left")
+        # Leftmost, and deliberately far from the accented "Kaydet": the only
+        # destructive control on this screen should not sit under the button
+        # the user reaches for by habit.
+        self.remove_key_button = ttk.Button(
+            btns, text="Anahtarı Kaldır", command=self._on_remove_key
+        )
+        self.remove_key_button.pack(side="left")
+        ttk.Button(btns, text="Anahtarı Test Et", command=self._on_test).pack(
+            side="left", padx=(10, 0)
+        )
         ttk.Button(btns, text="Kaydet", command=self._on_save, style="Accent.TButton").pack(
             side="left", padx=(10, 0)
         )
@@ -144,6 +153,48 @@ class SettingsView(ttk.Frame):
         self._on_settings_changed(self._settings)
         self._settings = self._live_settings.copy_for_edit()
         messagebox.showinfo("Ayarlar Kaydedildi", "Ayarlarınız başarıyla kaydedildi.")
+
+    def _on_remove_key(self) -> None:
+        """
+        Delete the stored API key — the only path in the UI that can.
+
+        Emptying the field and saving is not equivalent. An ordinary save
+        deliberately preserves a token it could not decrypt, because treating
+        "undecryptable" as "absent" once destroyed a user's only copy. That is
+        the right default, but it left the user whose DPAPI context changed
+        (a different Windows account, a restored profile) with a key they could
+        neither use nor get rid of — while the warning the application itself
+        raises told them to choose "Anahtarı Kaldır".
+        """
+        if not messagebox.askyesno(
+            "Anahtarı Kaldır",
+            "Kayıtlı VirusTotal API anahtarı bu bilgisayardan silinecek.\n\n"
+            "Çevrimiçi kontrol, yeni bir anahtar girene kadar çalışmayacak.\n"
+            "Devam edilsin mi?",
+            icon="warning",
+            default="no",
+        ):
+            return
+
+        self._settings.clear_api_key()
+        try:
+            self._settings.save()
+        except SettingsError as exc:
+            # Same discipline as _on_save: a failed write must not leak into
+            # the running configuration, and must never be reported as done.
+            self._settings = self._live_settings.copy_for_edit()
+            messagebox.showerror("Anahtar kaldırılamadı", str(exc))
+            return
+
+        self._live_settings = self._settings
+        self.api_key_var.set("")
+        self.test_status_var.set("Kayıtlı anahtar kaldırıldı.")
+        self._on_settings_changed(self._settings)
+        self._settings = self._live_settings.copy_for_edit()
+        messagebox.showinfo(
+            "Anahtar Kaldırıldı",
+            "Kayıtlı VirusTotal API anahtarı silindi.",
+        )
 
     def _on_test(self) -> None:
         key = self.api_key_var.get().strip()

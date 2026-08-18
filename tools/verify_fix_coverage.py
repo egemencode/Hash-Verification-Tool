@@ -222,6 +222,28 @@ REVERTS = [
      "tests.test_gui_advanced_cancel.AdvancedTabCancelTests"
      ".test_cancel_is_idle_when_nothing_is_running"),
 
+    # Three holders of the language; updating two of them is what let the
+    # Settings tab write the stale one back.
+    ("language switch updates the typed settings", "gui/app.py",
+     "        self._app_settings.language = lang\n",
+     "        pass\n",
+     "tests.test_gui_settings_state.LanguageStateTests"
+     ".test_saving_settings_keeps_the_language_chosen_from_the_menu"),
+
+    # An ordinary save preserves an undecryptable token on purpose, so without
+    # this call there is no path at all that removes it.
+    ("settings can remove the stored key", "gui/views/settings_view.py",
+     "        self._settings.clear_api_key()\n",
+     "        pass\n",
+     "tests.test_gui_settings_state.UnreadableKeyRemovalTests"
+     ".test_an_undecryptable_key_can_be_removed"),
+
+    ("key removal asks first", "gui/views/settings_view.py",
+     "        if not messagebox.askyesno(\n",
+     "        if False:\n",
+     "tests.test_gui_settings_state.UnreadableKeyRemovalTests"
+     ".test_removal_is_abandoned_when_the_user_declines"),
+
     ("GUI reports an underivable output path", "gui/app.py",
      "        except (ValueError, OSError) as exc:\n",
      "        except ZeroDivisionError as exc:\n",

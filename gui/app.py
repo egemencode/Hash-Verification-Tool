@@ -496,6 +496,11 @@ class HashToolApp(tk.Tk):
 
         set_language(lang)
         self._settings["language"] = lang
+        # Third holder of the same value, and the one the Settings tab is
+        # rebuilt from. Leaving it stale is what let the next save in that tab
+        # write the previous language back and switch the UI to it — silently
+        # undoing a choice the user had already made and seen take effect.
+        self._app_settings.language = lang
         try:
             save_settings(self._settings)
         except SettingsError as exc:

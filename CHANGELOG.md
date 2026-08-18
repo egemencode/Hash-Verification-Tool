@@ -86,6 +86,17 @@ the verdict won.
   migrated and scrubbed.
 
 ### Fixed
+- **Settings could silently undo a language you had already switched to.** The
+  value lived in three places and the menu switch updated two of them, so the
+  Settings tab was rebuilt holding the previous language; the next save — even
+  one made to change something else entirely — wrote it back and switched the
+  UI to it.
+- **A stored VirusTotal key that could not be decrypted could not be removed.**
+  An ordinary save preserves such a token on purpose, because treating
+  "undecryptable" as "absent" once destroyed a user's only copy; but the
+  escape hatch had no control in the UI, and the warning the application
+  raised named a button that did not exist. Settings now offers "Anahtarı
+  Kaldır", behind a confirmation that defaults to no.
 - A Tk geometry-manager conflict prevented the app from opening at all.
 - Folder scans followed junctions, so a link could pull files from anywhere on
   the disk into the manifest.
