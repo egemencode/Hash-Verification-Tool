@@ -129,21 +129,30 @@ class InventoryAfterRehashTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_file_added_after_the_second_inventory_is_caught(self) -> None:
-        real = verifier_mod.snapshot_inventory
-        calls = {"n": 0}
+        # The window under test is the re-hash pass: it runs *after* the
+        # mid-scan inventory, so without a further inventory afterwards a file
+        # created during it is never observed. Anchor on that moment rather
+        # than on how many times the verifier happens to walk the tree.
+        real_hash = verifier_mod.hash_file_with_snapshot
+        reads = {"n": 0}
 
-        def hooked(*args, **kwargs):
-            result = real(*args, **kwargs)
-            calls["n"] += 1
-            if calls["n"] == 2:          # right after the mid-scan inventory
+        def hooked(path, *args, **kwargs):
+            out = real_hash(path, *args, **kwargs)
+            reads["n"] += 1
+            if reads["n"] == 2:      # the re-hash of a.bin
                 (self.data / "late.txt").write_text("late", encoding="utf-8")
-            return result
+            return out
 
-        with mock.patch.object(verifier_mod, "snapshot_inventory", hooked):
+        with mock.patch.object(verifier_mod, "hash_file_with_snapshot", hooked):
             result = Verifier(self.manifest).verify(self.data)
 
         self.assertTrue((self.data / "late.txt").exists())
-        self.assertGreaterEqual(calls["n"], 3, "no inventory was taken after the re-hash")
+        self.assertGreaterEqual(reads["n"], 2, "the re-hash pass did not run")
+        self.assertIn(
+            "late.txt", result.changed_during_scan,
+            "no inventory was taken after the re-hash, so the late file was "
+            f"never observed: {result.changed_during_scan}",
+        )
         self.assertFalse(result.scan_complete, "a late addition was not detected")
         self.assertFalse(result.is_clean)
 

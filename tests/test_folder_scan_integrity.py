@@ -23,6 +23,7 @@ import unittest
 from pathlib import Path
 
 from tests.support import DiagnosticTempDir
+from core.hash_utils import enumerate_files
 from core.manifest_manager import Manifest, build_manifest_for_folder
 from core.verifier import Verifier
 
@@ -102,6 +103,115 @@ class ReparsePointTests(_Tree):
         build = build_manifest_for_folder(self.data)
         manifest = build.manifest if hasattr(build, "manifest") else build
         self.assertIn("a.txt", " ".join(manifest.entries))
+
+    def test_junction_cycle_terminates_while_following(self) -> None:
+        # The cycle guard only ever runs when following is enabled, so this is
+        # the case that actually exercises it.
+        (self.data / "a.txt").write_text("a", encoding="utf-8")
+        sub = self.data / "sub"
+        sub.mkdir()
+        if not _make_junction(sub / "loop", self.data):
+            self.skipTest("cannot create a junction on this system")
+
+        build = build_manifest_for_folder(self.data, follow_symlinks=True)
+        self.assertIn("a.txt", build.manifest.entries)
+
+    def test_no_link_kind_can_pull_content_from_outside_the_root(self) -> None:
+        # Containment used to be checked only in the directory branch, so a
+        # *file* symlink pointing at, say, an SSH key would be hashed and
+        # recorded as an entry of the scanned folder — precisely what the
+        # flag's own help text promises cannot happen.
+        #
+        # Creating a file symlink needs SeCreateSymbolicLinkPrivilege, which is
+        # not available to an ordinary process on a machine without Developer
+        # Mode. So this asserts the rule for whichever link kinds this machine
+        # can actually create — never nothing.
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("must not be scanned", encoding="utf-8")
+        (self.data / "inside.txt").write_text("ok", encoding="utf-8")
+
+        checked = []
+        if _make_junction(self.data / "dirlink", outside):
+            checked.append("directory junction")
+        try:
+            (self.data / "filelink.txt").symlink_to(outside / "secret.txt")
+            checked.append("file symlink")
+        except OSError:
+            # No privilege for file symlinks here; the directory case below
+            # still exercises the same containment branch.
+            pass
+        self.assertTrue(checked, "no link kind could be created to test with")
+
+        entries = {
+            p.relative_to(self.data).as_posix()
+            for p in enumerate_files(self.data, follow_symlinks=True)
+        }
+        self.assertIn("inside.txt", entries)
+        for name in entries:
+            self.assertNotIn(
+                "secret.txt", name,
+                f"a file from outside the root was scanned via {checked}: {name}",
+            )
+
+    def test_a_junction_web_does_not_explode_the_walk(self) -> None:
+        # A cycle guard that only rejects "this directory is its own ancestor"
+        # puts no bound on how many *distinct paths* reach the same directory.
+        # With N directories that all link to each other, the walk enumerates
+        # every simple path through the junction graph — factorial in N. A few
+        # kilobytes of metadata inside the scanned tree is then enough to wedge
+        # the scan, and enumeration finishes before any cancel is polled, so
+        # the run cannot even be stopped.
+        n = 6
+        dirs = []
+        for i in range(n):
+            d = self.data / f"d{i}"
+            d.mkdir()
+            (d / "f.txt").write_text(f"file {i}", encoding="utf-8")
+            dirs.append(d)
+        for i, source in enumerate(dirs):
+            for j, target in enumerate(dirs):
+                if i != j and not _make_junction(source / f"to{j}", target):
+                    self.skipTest("cannot create a junction on this system")
+
+        found = enumerate_files(self.data, follow_symlinks=True)
+
+        # Every real file must still be covered under its real path.
+        real_paths = {
+            f"d{i}/f.txt" for i in range(n)
+        }
+        seen = {p.relative_to(self.data).as_posix() for p in found}
+        self.assertTrue(
+            real_paths.issubset(seen),
+            f"a real directory was dropped from the scan: {sorted(seen)}",
+        )
+        # And the total work must stay proportional to the tree, not to the
+        # number of paths through it. Unbounded here means "the tool hangs".
+        self.assertLessEqual(
+            len(found), 4 * n,
+            f"{len(found)} entries yielded for {n} real files — the walk is "
+            "enumerating paths through the junction graph, not the tree",
+        )
+
+    def test_a_junction_does_not_hide_the_directory_it_points_at(self) -> None:
+        # A device+inode set shared across the whole walk cannot tell "I am
+        # inside myself" from "I have already seen this content elsewhere".
+        # With a junction pointing at a sibling, whichever name sorts first
+        # claims the identity and the other directory silently vanishes from
+        # the manifest — a coverage hole exactly where someone placed a link.
+        real = self.data / "real"
+        real.mkdir()
+        (real / "deep.txt").write_text("deep", encoding="utf-8")
+        if not _make_junction(self.data / "link", real):
+            self.skipTest("cannot create a junction on this system")
+
+        build = build_manifest_for_folder(self.data, follow_symlinks=True)
+        entries = set(build.manifest.entries)
+        self.assertIn(
+            "real/deep.txt", entries,
+            f"the real directory was dropped from the scan: {sorted(entries)}",
+        )
+        self.assertIn("link/deep.txt", entries)
 
 
 class SelfExclusionTests(_Tree):

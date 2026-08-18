@@ -11,6 +11,7 @@ Layout (top to bottom):
 
 from __future__ import annotations
 
+import os
 import threading
 import queue
 import tkinter as tk
@@ -40,6 +41,59 @@ from core.history_manager import HistoryManager, HistoryStoreError, make_entry
 from utils.logger import get_logger
 
 log = get_logger("gui.trust")
+
+
+# Passed to windnd.hook_dropfiles. `force_unicode` makes it call DragQueryFileW
+# and hand back `str`; without it the library uses the ANSI DragQueryFile, whose
+# bytes are in the active code page and cannot represent every filename NTFS
+# accepts (an emoji arrives as "?"). Kept as a module constant so the wiring is
+# testable — a silently ANSI drop path is invisible until someone drops a file
+# with the wrong name.
+DROP_HOOK_KWARGS: dict[str, object] = {"force_unicode": True}
+
+
+def decode_dropped_path(raw: bytes | str) -> str:
+    """
+    Turn a dropped path from the drag-and-drop library into a usable string.
+
+    With :data:`DROP_HOOK_KWARGS` the library already hands back ``str`` and
+    this is a pass-through. The bytes branch exists because the decoding is not
+    knowable from the value alone — an older library build, or one that ignores
+    the flag, delivers active-code-page bytes, while ``os.fsencode`` output is
+    UTF-8 with surrogatepass. Guessing wrong is not cosmetic: the caller ends up
+    with a path that does not exist and the user is told their file is missing.
+
+    So each plausible decoding is tried and the first one that names a real file
+    wins. A dropped path exists by construction, which is what makes that test
+    meaningful. The code page goes first because some ANSI byte sequences are
+    also well-formed UTF-8 (cp1254 ``Ã§`` is the pair the UTF-8 reader sees as
+    ``ç``), so both readings can name files that exist side by side and only the
+    order picks the one actually dropped. Nothing here may raise: this runs
+    inside a ctypes callback where an exception unwinds into the window
+    procedure, skipping ``DragFinish`` and leaving the drop to do nothing at all
+    with no message.
+    """
+    if isinstance(raw, str):
+        return raw
+
+    candidates: list[str] = []
+    for decoder in (lambda b: b.decode("mbcs"), os.fsdecode):
+        try:
+            decoded = decoder(raw)
+        except (UnicodeDecodeError, UnicodeError, LookupError, ValueError):
+            continue
+        if decoded not in candidates:
+            candidates.append(decoded)
+        try:
+            if os.path.exists(decoded):
+                return decoded
+        except (OSError, ValueError):
+            continue
+
+    if candidates:
+        return candidates[0]
+    # Last resort: never propagate out of the drop callback.
+    return raw.decode("mbcs", errors="replace")
 
 
 # Risk-level → (badge background, badge text)
@@ -154,12 +208,17 @@ class TrustCheckView(ttk.Frame):
             import windnd  # type: ignore
 
             def _on_drop(paths: list[bytes]) -> None:
-                if not paths:
-                    return
-                p = paths[0].decode("utf-8", errors="replace")
-                self._set_selected_path(p)
+                # Runs inside a ctypes window procedure. An exception escaping
+                # here skips the library's DragFinish and leaks the drop
+                # handle, and the user sees nothing happen at all.
+                try:
+                    if not paths:
+                        return
+                    self._set_selected_path(decode_dropped_path(paths[0]))
+                except Exception:  # noqa: BLE001 - must not unwind into ctypes
+                    log.exception("drag-and-drop handling failed")
 
-            windnd.hook_dropfiles(self, func=_on_drop)
+            windnd.hook_dropfiles(self, func=_on_drop, **DROP_HOOK_KWARGS)
         except Exception:
             pass
 

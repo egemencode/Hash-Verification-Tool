@@ -29,16 +29,21 @@ from core.hash_utils import (
     DEFAULT_ALGORITHM,
     SUPPORTED_ALGORITHMS,
     ProgressEvent,
-    compute_file_hash,
+    hash_file_with_snapshot,
 )
 from core.history_manager import HistoryManager
 from core.local_verify import LocalVerifyStore
 from core.manifest_manager import (
     Manifest,
     ManifestIntegrityError,
-    SignatureState,
-    build_manifest_for_file,
     build_manifest_for_folder,
+    manifest_from_hashed_file,
+)
+from core.scan_policy import (
+    confirmations,
+    evaluate_hash_request,
+    first_blocking,
+    warnings as policy_warnings,
 )
 from core.reporter import convert_report, report_to_csv, report_to_json
 from core.verifier import Verifier
@@ -644,15 +649,61 @@ class HashTab(_BaseTab):
         algo = self.algo_var.get()
         output = self.output_var.get().strip() or None
         mode = self.mode_var.get()
+        # This runs on the Tk main thread, where an uncaught exception is
+        # printed to stderr and nothing else happens — the button appears dead.
+        # A drive root or a bare UNC share has no filename to put a default
+        # manifest beside, so this is a real input, not a defensive flourish.
+        try:
+            saved_to = output or (
+                None if mode == "file"
+                else str(Path(target).with_name("manifest.json"))
+            )
+        except (ValueError, OSError) as exc:
+            messagebox.showerror(
+                t("hash.err_title"),
+                t("hash.no_default_output", target=target, error=exc),
+            )
+            return
+
+        # The same decision table the CLI uses, so the graphical path cannot
+        # end up being the permissive one. Evaluated before any hashing: a
+        # refusal must leave nothing behind.
+        notices = evaluate_hash_request(
+            mode=mode, target=target, output=saved_to, algorithm=algo
+        )
+        blocking = first_blocking(notices)
+        if blocking is not None:
+            messagebox.showerror(t("hash.blocked_title"), blocking.message)
+            self._append(f"\n⛔ {blocking.message}\n")
+            return
+        for notice in confirmations(notices):
+            if not messagebox.askyesno(
+                t("hash.confirm_title"),
+                notice.message + "\n\n" + t("hash.confirm_question"),
+                icon="warning",
+                default="no",
+            ):
+                self._append(f"\n⏹ {t('hash.log.cancelled')}\n")
+                return
+            self._append(f"\n⚠ {notice.message}\n")
+        for notice in policy_warnings(notices):
+            self._append(f"\n⚠ {notice.message}\n")
 
         self._append(t("hash.log.header", mode=mode, algo=algo, target=target))
 
         def work(emit: Callable[[_Message], None]) -> dict[str, Any]:
             if mode == "file":
-                digest = compute_file_hash(target, algorithm=algo)
+                # One read: the digest shown and the digest stored describe
+                # the same bytes. Strict only when it becomes a stored
+                # reference; printing a checksum of a live file stays lenient.
+                digest, snapshot = hash_file_with_snapshot(
+                    target, algorithm=algo, ensure_stable=bool(output)
+                )
                 saved = None
                 if output:
-                    build_manifest_for_file(target, algorithm=algo).save(output)
+                    manifest_from_hashed_file(
+                        target, algo, digest, snapshot
+                    ).save(output)
                     saved = output
                 emit(_Message("progress", ProgressEvent(done=1, total=1, path=target)))
                 return {"mode": "file", "digest": digest, "output": saved}
@@ -660,7 +711,6 @@ class HashTab(_BaseTab):
             def on_progress(event: ProgressEvent) -> None:
                 emit(_Message("progress", event))
 
-            saved_to = output or str(Path(target).with_name("manifest.json"))
             build = build_manifest_for_folder(
                 target, algorithm=algo, on_progress=on_progress, exclude=[saved_to]
             )

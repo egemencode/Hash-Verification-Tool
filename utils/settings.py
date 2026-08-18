@@ -28,7 +28,7 @@ import sys
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from core import secret_store
 from core.atomic_io import (

@@ -1,8 +1,13 @@
 # P1 Backlog
 
-Bu turda (red-team P0 kapanışı) **kapsam dışı** bırakılan, bağımsız denetimde
-tespit edilmiş maddeler. Hiçbiri güvenlik kararlarını yanlış üretmiyor; hepsi
-kullanılabilirlik/tutarlılık sorunu.
+Bu turda (red-team P0 kapanışı ve ardından §3 CLI/klasör sözleşmesi) **kapsam
+dışı** bırakılan, bağımsız denetimde tespit edilmiş maddeler. Hiçbiri güvenlik
+kararlarını yanlış üretmiyor; hepsi kullanılabilirlik/tutarlılık sorunu.
+
+> §3 turunda madde 3'ün çekirdek yarısı kapandı: `build_manifest_for_folder`
+> ve `Verifier.verify` artık `cancel` yordamı alıyor, iptal edilen tarama ayrı
+> bir `ScanState.CANCELLED` terminal olayı üretiyor ve hiçbir koşulda manifest
+> olarak kaydedilmiyor. Eksik olan hâlâ **kullanıcıya görünür düğme**.
 
 ## 1. Ayarlar'da "API Anahtarını Kaldır" eylemi yok
 
@@ -42,3 +47,59 @@ callback'i `_poll_after_id` disiplinine tabi değil.
 
 **Yapılacak:** Uygulama geneli tek görev yöneticisi (session kimliği, iptal,
 bounded join, tek scheduler) ve Ayarlar test akışının ona bağlanması.
+
+## 5. GUI'de imzalama akışı yok
+
+`keygen` / `sign` / `--sign-key` yalnız CLI'da. GUI'den üretilen her manifest
+imzasız; doğrularken `--allow-unsigned` karşılığı bir kabul adımı da yok, GUI
+imzasız referansı sessizce kullanıyor.
+
+**Yapılacak:** Gelişmiş > Hash sekmesine anahtar seçimi ve "Manifesti imzala";
+Doğrula sekmesine güvenilen genel anahtar alanı; imzasız referans için CLI'daki
+ile aynı bilinçli kabul adımı.
+
+## 6. Uzun yol dayanıklılığı yalnız kaynak üzerinde doğrulandı
+
+`tests/test_unicode_paths.py::LongPathTests` >260 karakterlik yolu kaynaktan
+çalışan araçla test ediyor. PyInstaller EXE üzerinde aynı testi çalıştıracak
+bir smoke adımı yok; `dist/` altındaki ikili dosyalar bu turdan eski.
+
+**Yapılacak:** Paketleme turunda EXE için `--version` / uzun yol smoke testi.
+
+## 7. Dosya symlink containment'ı uçtan uca doğrulanamadı
+
+`iter_files` artık containment kontrolünü dizin/dosya ayrımından **önce**
+yapıyor, yani kök dışına çıkan bir **dosya** symlink'i de taramaya giremiyor.
+Ama bu makinede `SeCreateSymbolicLinkPrivilege` yok (Developer Mode kapalı),
+`os.symlink` `WinError 1314` veriyor ve dosya symlink'i oluşturulamıyor.
+
+Sonuç: mevcut test yalnız junction (dizin linki) senaryosunu koşuyor, o da
+düzeltmeden önceki kodda da geçiyordu. Kod doğru görünüyor, kanıt yok.
+
+**Yapılacak:** Developer Mode açık bir makinede, yükseltilmiş bir oturumda ya
+da CI'da dosya symlink'i kuran bir regresyon testi koş.
+
+## 8. Atfedilemeyen `<AD>.<UZANTI>.tmp` artığı — kapıyı aralıklı düşürüyor
+
+Tam süit koşularının küçük bir kısmında (bu turda **25 koşuda 1**), temizlik
+sırasında bir test temp dizininde 0 baytlık `KNOWN_FILES.JSON.tmp` beliriyor ve
+`DiagnosticTempDir` `InconclusiveCleanupError` fırlatıyor. Bu **kasıtlı**:
+süreç düzeyinde kanıt olmadan dosyayı "başka bir programın" ilan etmek, gecikmeli
+kendi yazıcımızın tanınmayan bir adın arkasına saklanmasına izin verirdi
+(`tests/test_support_harness.py::test_unidentified_file_is_inconclusive_not_a_pass`).
+
+Eldeki kanıt dışarıyı gösteriyor ama **atıf yapılmadı**:
+
+- Ürünün atomik yazıcısı `hvt<5 hex>.tmp` üretiyor (`core/atomic_io.py`); büyük
+  harfli `KNOWN_FILES.JSON.tmp` biçimini hiçbir kod yolu üretmiyor.
+- Önceki turda 300 denemelik izole deney, ürün kodunun 0 leftover ürettiğini
+  gösterdi.
+- Ad biçimi (gerçek dosya adı + `.tmp`, büyük harf) bir filtre sürücüsünün
+  (Defender / arama indeksleyici) silme penceresinde gölge kopya oluşturmasına
+  uyuyor.
+
+**Yapılacak:** Süreç düzeyinde araçla (Sysinternals Process Monitor, ETW
+`FileIo` sağlayıcısı veya bir minifilter izi) dosyayı hangi sürecin yarattığını
+tespit et. Atıf yapılırsa `_classify_leftovers`'a gerekçeli bir istisna
+eklenebilir; yapılamazsa kapı olduğu gibi kalmalı — aralıklı kırmızı, sessiz
+yeşilden iyidir.

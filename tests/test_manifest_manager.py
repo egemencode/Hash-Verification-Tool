@@ -73,11 +73,16 @@ class ManifestRoundtripTests(unittest.TestCase):
     def test_progress_callback_fires_for_every_file(self) -> None:
         events: list = []
         build_manifest_for_folder(self.root, on_progress=events.append)
-        # setUp created 2 files
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[-1].done, 2)
-        self.assertEqual(events[-1].total, 2)
-        self.assertGreater(events[-1].percent, 99.0)
+        # setUp created 2 files: one event each, plus the terminal event that
+        # tells the UI there is nothing more coming.
+        per_file = [e for e in events if not e.is_terminal]
+        self.assertEqual(len(per_file), 2)
+        self.assertEqual(per_file[-1].done, 2)
+        self.assertEqual(per_file[-1].total, 2)
+        self.assertGreater(per_file[-1].percent, 99.0)
+
+        self.assertTrue(events[-1].is_terminal)
+        self.assertEqual(events[-1].percent, 100.0)
 
 
 if __name__ == "__main__":

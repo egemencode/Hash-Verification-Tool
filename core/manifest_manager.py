@@ -22,9 +22,10 @@ from core.hash_utils import (
     DEFAULT_ALGORITHM,
     HashError,
     ProgressEvent,
-    count_files,
+    ScanState,
+    enumerate_files,
     hash_file_with_snapshot,
-    iter_files,
+    inventory_for_paths,
     snapshot_inventory,
 )
 from core import manifest_signing
@@ -405,29 +406,47 @@ class Manifest:
 # ----------------------------------------------------------------------
 # High-level builder used by the CLI
 # ----------------------------------------------------------------------
+def manifest_from_hashed_file(
+    file_path: str | Path,
+    algorithm: str,
+    digest: str,
+    snapshot: Any,
+) -> Manifest:
+    """
+    Wrap an *already computed* digest + handle-bound snapshot in a manifest.
+
+    Lets a caller that has just hashed a file record it without opening the
+    file a second time. A second read is a second point in time: the digest
+    shown to the user and the one stored in the manifest could then describe
+    different bytes.
+    """
+    path = Path(file_path).resolve()
+    manifest = Manifest(root_path=str(path.parent), algorithm=algorithm)
+    manifest.add(
+        path.name,
+        FileEntry(
+            hash=digest,
+            algorithm=algorithm,
+            size=snapshot.size,
+            mtime=snapshot.mtime,
+        ),
+    )
+    return manifest
+
+
 def build_manifest_for_file(
     file_path: str | Path,
     algorithm: str = DEFAULT_ALGORITHM,
 ) -> Manifest:
     """Build a manifest containing just one file."""
     path = Path(file_path).resolve()
-    manifest = Manifest(root_path=str(path.parent), algorithm=algorithm)
     # Capture size/mtime from the same handle used to hash so the recorded
     # metadata is consistent with the exact bytes we digested. Strict mode:
     # a file mutated mid-read must not produce a manifest entry.
     digest, snap = hash_file_with_snapshot(
         path, algorithm=algorithm, ensure_stable=True
     )
-    manifest.add(
-        path.name,
-        FileEntry(
-            hash=digest,
-            algorithm=algorithm,
-            size=snap.size,
-            mtime=snap.mtime,
-        ),
-    )
-    return manifest
+    return manifest_from_hashed_file(path, algorithm, digest, snap)
 
 
 @dataclass
@@ -448,6 +467,9 @@ class BuildResult:
     errors: list[tuple[str, str]] = field(default_factory=list)
     inventory: dict[str, Any] = field(default_factory=dict)
     changed_during_scan: list[str] = field(default_factory=list)
+    # True when the caller stopped the scan. A cancelled build describes only
+    # the part of the folder it got to, so it is never complete.
+    cancelled: bool = False
 
     def __post_init__(self) -> None:
         # Stamp the document itself immediately, not at save time: a caller
@@ -480,6 +502,15 @@ class BuildResult:
         if self.complete:
             return self.manifest.save(target)
 
+        if self.cancelled:
+            # Not a policy choice the caller can override: a cancelled scan
+            # stopped at an arbitrary file, so the "manifest" is a prefix of
+            # the folder with no marker saying where it stops.
+            raise ManifestError(
+                "Tarama iptal edildi; yarım kalan sonuç manifest olarak "
+                "kaydedilmez."
+            )
+
         if not allow_partial:
             raise ManifestError(
                 f"Tarama tamamlanamadı ({len(self.skipped)} dosya atlandı, "
@@ -494,6 +525,7 @@ class BuildResult:
     def summary(self) -> dict[str, Any]:
         return {
             "complete": self.complete,
+            "cancelled": self.cancelled,
             "hashed": self.file_count,
             "skipped": len(self.skipped),
             "errors": len(self.errors),
@@ -509,6 +541,7 @@ def build_manifest_for_folder(
     *,
     follow_symlinks: bool = False,
     exclude: Optional[Sequence[str | Path]] = None,
+    cancel: Optional[Callable[[], bool]] = None,
 ) -> BuildResult:
     """
     Build a manifest for every file under *folder_path*.
@@ -517,6 +550,9 @@ def build_manifest_for_folder(
     build cannot be mistaken for a successful one. Reparse points are not
     followed by default, and *exclude* keeps the manifest/report we are about
     to write out of its own inventory.
+
+    *cancel* is polled before each file; when it returns True the scan stops
+    and the result is marked cancelled (and therefore never complete).
     """
     root = Path(folder_path).resolve()
     manifest = Manifest(root_path=str(root), algorithm=algorithm)
@@ -524,48 +560,88 @@ def build_manifest_for_folder(
 
     walk_kwargs = {"follow_symlinks": follow_symlinks, "exclude": excluded}
 
-    # Inventory before and after: lets us detect a tree that shifted mid-scan.
-    before = snapshot_inventory(root, **walk_kwargs)
-    total = len(before)
-
     skipped: list[str] = []
     errors: list[tuple[str, str]] = []
+    cancelled = False
+    processed = 0
+    total = 0
+    announced = False
 
-    for index, file_path in enumerate(iter_files(root, **walk_kwargs), start=1):
-        rel = file_path.relative_to(root).as_posix()
-        try:
-            # ensure_stable: a file that changes mid-read raises
-            # FileChangedDuringScanError (a HashError), so it is reported and
-            # deliberately left OUT of the manifest rather than recorded with
-            # a digest that may match neither version.
-            digest, snap = hash_file_with_snapshot(
-                file_path, algorithm=algorithm, ensure_stable=True
-            )
-            manifest.add(
-                rel,
-                FileEntry(
-                    hash=digest, algorithm=algorithm, size=snap.size, mtime=snap.mtime
-                ),
-            )
-        except (HashError, OSError) as exc:
-            skipped.append(rel)
-            errors.append((rel, str(exc)))
-            if on_error is not None:
-                on_error(rel, exc)
-        if on_progress is not None:
-            on_progress(ProgressEvent(done=index, total=total, path=rel))
+    def _announce(state: ScanState) -> None:
+        """Emit the single terminal event. Safe to call from any exit path."""
+        nonlocal announced
+        if on_progress is None or announced:
+            return
+        announced = True
+        on_progress(
+            ProgressEvent(done=processed, total=total, path="", state=state)
+        )
 
-    after = snapshot_inventory(root, **walk_kwargs)
-    changed = sorted(
-        set(before) ^ set(after)
-        | {k for k in (set(before) & set(after)) if not before[k].is_same(after[k])}
-    )
+    try:
+        # ONE enumeration drives both the progress denominator and the work, so
+        # `done` can never overshoot `total`. The before/after inventories below
+        # are what detect a tree that shifted mid-scan.
+        paths = enumerate_files(root, **walk_kwargs)
+        before = inventory_for_paths(root, paths)
+        total = len(paths)
+
+        for index, file_path in enumerate(paths, start=1):
+            if cancel is not None and cancel():
+                cancelled = True
+                break
+            rel = file_path.relative_to(root).as_posix()
+            try:
+                # ensure_stable: a file that changes mid-read raises
+                # FileChangedDuringScanError (a HashError), so it is reported
+                # and deliberately left OUT of the manifest rather than
+                # recorded with a digest that may match neither version.
+                digest, snap = hash_file_with_snapshot(
+                    file_path, algorithm=algorithm, ensure_stable=True
+                )
+                manifest.add(
+                    rel,
+                    FileEntry(
+                        hash=digest, algorithm=algorithm,
+                        size=snap.size, mtime=snap.mtime,
+                    ),
+                )
+            except (HashError, OSError) as exc:
+                skipped.append(rel)
+                errors.append((rel, str(exc)))
+                if on_error is not None:
+                    on_error(rel, exc)
+            processed = index
+            if on_progress is not None:
+                on_progress(ProgressEvent(done=index, total=total, path=rel))
+
+        after = snapshot_inventory(root, **walk_kwargs)
+        changed = sorted(
+            set(before) ^ set(after)
+            | {k for k in (set(before) & set(after)) if not before[k].is_same(after[k])}
+        )
+        if cancelled:
+            # The tail of the folder was never looked at, so "did it change
+            # while we scanned?" has no answer for it. Reporting drift here
+            # would be an assertion about files we never read.
+            changed = []
+    except BaseException:
+        # The tree can vanish underneath us — removable media, a temp folder
+        # another process cleans up — and the re-walk above then raises. A
+        # caller that stops its spinner on a terminal event would wait forever,
+        # so say the run ended before letting the error out.
+        _announce(ScanState.FAILED)
+        raise
+
+    # Always the last word, even for an empty folder: without it a UI has no
+    # event that tells it to stop showing progress.
+    _announce(ScanState.CANCELLED if cancelled else ScanState.COMPLETED)
 
     return BuildResult(
         manifest=manifest,
-        complete=not skipped and not errors and not changed,
+        complete=not cancelled and not skipped and not errors and not changed,
         skipped=skipped,
         errors=errors,
         inventory={k: {"size": v.size, "mtime": v.mtime} for k, v in after.items()},
         changed_during_scan=changed,
+        cancelled=cancelled,
     )

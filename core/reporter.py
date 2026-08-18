@@ -91,8 +91,15 @@ def report_to_console(result: VerificationResult, verbose: bool = False) -> None
         )
 
     print()
+    if result.cancelled:
+        print(_colorise(
+            "Scan cancelled — the folder was not fully examined, so this is "
+            "not a verification result.", "YELLOW"
+        ))
+        return
     if not result.is_clean:
         print(_colorise("Differences detected. Review the report above.", "YELLOW"))
+        _print_algorithm_caveat(result)
         return
 
     # "The files match" and "the reference can be trusted" are separate
@@ -112,6 +119,27 @@ def report_to_console(result: VerificationResult, verbose: bool = False) -> None
             "All files match the manifest, but the manifest is unsigned — the "
             "reference data itself could have been altered.", "YELLOW"
         ))
+    _print_algorithm_caveat(result)
+
+
+def _print_algorithm_caveat(result: VerificationResult) -> None:
+    """
+    Qualify a match made under a collision-prone algorithm.
+
+    Under MD5 or SHA-1 an attacker who controls the content can produce a
+    different file with the same digest, so "the digests agree" and "the file
+    was not replaced" stop being the same statement. Saying this next to the
+    result is the difference between a checksum and a tamper claim.
+    """
+    if not result.collision_prone_algorithm:
+        return
+    algo = result.algorithm.upper()
+    print(_colorise(
+        f"NOTE: this comparison used {algo}, a legacy checksum whose "
+        f"collisions are practically constructible. Matching {algo} digests "
+        "do not establish that a file was not tampered with; re-baseline with "
+        "SHA-256 for integrity.", "YELLOW"
+    ))
 
 
 def _print_detail_section(title: str, items: list[str], color: str) -> None:

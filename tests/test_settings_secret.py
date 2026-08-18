@@ -139,5 +139,24 @@ class LocationTests(unittest.TestCase):
                 self.assertEqual(settings_mod._base_dir(), local / "HashTool")
 
 
+class AnnotationTests(unittest.TestCase):
+    """
+    Every annotation on AppSettings must actually resolve.
+
+    ``from __future__ import annotations`` keeps an undefined name in an
+    annotation from raising at import time, so a missing import survives
+    unnoticed until something inspects the class — at which point the failure
+    lands far from its cause.
+    """
+
+    def test_type_hints_resolve(self) -> None:
+        from typing import get_type_hints
+
+        from utils.settings import AppSettings
+
+        hints = get_type_hints(AppSettings)
+        self.assertIn("virustotal_api_key", hints)
+
+
 if __name__ == "__main__":
     unittest.main()

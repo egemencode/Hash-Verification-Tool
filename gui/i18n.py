@@ -71,12 +71,20 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "hash.missing_title": "Missing path",
         "hash.missing_body": "Please select a file or folder.",
         "hash.err_title": "Hash failed",
+        "hash.blocked_title": "Cannot run this",
+        "hash.no_default_output": (
+            "No default manifest name can be derived for {target} ({error}).\n\n"
+            "Choose an output file explicitly."
+        ),
+        "hash.confirm_title": "Are you sure?",
+        "hash.confirm_question": "Continue anyway?",
         "hash.status": "Hashing {mode}…",
         "hash.progress": "Hashing  [{done}/{total}]  {path}",
         "hash.log.header": "\n--- Hashing ({mode}, {algo}) ---\n{target}\n",
         "hash.log.digest": "Digest : {digest}\n",
         "hash.log.saved": "Manifest saved: {path}\n",
         "hash.log.count": "Files hashed : {count}\n",
+        "hash.log.cancelled": "Cancelled — nothing was written.\n",
         "hash.log.done": "Done.\n",
 
         # --- Verify tab -----------------------------------------------------
@@ -180,12 +188,20 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "hash.missing_title": "Yol eksik",
         "hash.missing_body": "Lütfen bir dosya veya klasör seçin.",
         "hash.err_title": "Hash başarısız",
+        "hash.blocked_title": "Bu işlem yapılamaz",
+        "hash.no_default_output": (
+            "{target} için varsayılan bir manifest adı türetilemiyor ({error}).\n\n"
+            "Kaydetme hedefini elle seçin."
+        ),
+        "hash.confirm_title": "Emin misiniz?",
+        "hash.confirm_question": "Yine de devam edilsin mi?",
         "hash.status": "Hash hesaplanıyor ({mode})…",
         "hash.progress": "Hash'leniyor  [{done}/{total}]  {path}",
         "hash.log.header": "\n--- Hash ({mode}, {algo}) ---\n{target}\n",
         "hash.log.digest": "Özet    : {digest}\n",
         "hash.log.saved": "Manifest kaydedildi: {path}\n",
         "hash.log.count": "Hash'lenen dosya : {count}\n",
+        "hash.log.cancelled": "İptal edildi — hiçbir şey yazılmadı.\n",
         "hash.log.done": "Tamamlandı.\n",
 
         # --- Doğrula sekmesi -----------------------------------------------

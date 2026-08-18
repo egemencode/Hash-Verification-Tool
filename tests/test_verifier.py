@@ -61,10 +61,13 @@ class VerifierTests(unittest.TestCase):
     def test_progress_callback_fires_for_every_file(self) -> None:
         events: list = []
         Verifier(self.manifest).verify(self.root, on_progress=events.append)
-        # setUp created 3 files.
-        self.assertEqual(len(events), 3)
-        self.assertEqual(events[-1].done, 3)
-        self.assertEqual(events[-1].total, 3)
+        # setUp created 3 files: one event each, then the terminal event.
+        per_file = [e for e in events if not e.is_terminal]
+        self.assertEqual(len(per_file), 3)
+        self.assertEqual(per_file[-1].done, 3)
+        self.assertEqual(per_file[-1].total, 3)
+
+        self.assertTrue(events[-1].is_terminal)
 
 
 if __name__ == "__main__":

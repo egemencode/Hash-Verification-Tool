@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
@@ -25,6 +26,17 @@ from typing import Iterable, Optional, Sequence
 # unsupported value fails fast instead of relying on hashlib's full set.
 SUPPORTED_ALGORITHMS: tuple[str, ...] = ("md5", "sha1", "sha256", "sha512")
 DEFAULT_ALGORITHM: str = "sha256"
+
+# Algorithms for which producing a chosen-prefix collision is practical. They
+# remain available for reading legacy checksum lists, but a *match* under one
+# of them says two files share a digest — not that the file was not tampered
+# with, which is the only thing an integrity manifest is for.
+INSECURE_ALGORITHMS: frozenset[str] = frozenset({"md5", "sha1"})
+
+
+def is_collision_prone(algorithm: str) -> bool:
+    """True for algorithms whose collisions are practically constructible."""
+    return str(algorithm).lower().strip() in INSECURE_ALGORITHMS
 
 # 64 KiB is a good default: large enough to amortise syscall overhead,
 # small enough to stay friendly to constrained environments.
@@ -44,20 +56,49 @@ class FileChangedDuringScanError(HashError):
     """
 
 
+class ScanState(str, Enum):
+    """How a scan is progressing, or how it ended."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self is not ScanState.RUNNING
+
+
 @dataclass(frozen=True)
 class ProgressEvent:
-    """Emitted by long-running hash / verify loops for UI updates.
+    """
+    Emitted by long-running hash / verify loops for UI updates.
 
-    ``done`` is 1-based, so ``done == total`` signals completion of the
-    final file. ``total`` is 0 when it is not known ahead of time.
+    The contract callers may rely on:
+
+    * ``total`` is fixed for the whole run — it comes from the same file list
+      the loop iterates, never from a second, independent walk of the tree;
+    * ``done`` only ever increases, and never exceeds ``total``;
+    * **exactly one** terminal event is emitted, always last, saying how the
+      run ended. Without it a UI has no reliable moment to stop the spinner —
+      an empty folder would otherwise produce no events at all.
     """
 
     done: int
     total: int
     path: str
+    state: ScanState = ScanState.RUNNING
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.state.is_terminal
 
     @property
     def percent(self) -> float:
+        # A completed run is 100% by definition, including the empty-folder
+        # case where there is no denominator to divide by.
+        if self.state is ScanState.COMPLETED:
+            return 100.0
         if self.total <= 0:
             return 0.0
         # Clamp so a late-arriving file (total under-counted) never shows
@@ -295,11 +336,45 @@ def iter_files(
     * **Reparse points are not followed.** A symlink or Windows junction
       inside the tree would otherwise let content from anywhere on the disk
       appear as if it belonged to the scanned folder.
-    * When ``follow_symlinks`` is enabled the resolved target must still live
-      under the root (containment check), and a device/inode ``visited`` set
-      stops junction cycles from recursing forever.
+    * When ``follow_symlinks`` is enabled the resolved target — of a directory
+      link *or* a file link — must still live under the root, so no link can
+      pull foreign content into the scan.
+    * Traversal is bounded: see below.
     * Entries are walked with :func:`os.scandir` in sorted order so two runs
       over an unchanged tree produce identical output.
+
+    Bounding the walk, without hiding a directory
+    ---------------------------------------------
+    Real directories form a tree, so each one is walked exactly once,
+    unconditionally. A directory **link** is followed only when its target has
+    not been traversed yet. That single asymmetry gives both properties we
+    need, and neither of the obvious alternatives gives both:
+
+    * One global "seen" set applied to real directories too lets a link claim a
+      directory's identity first — sorted order alone decides — and the real
+      directory then silently disappears from the scan, which is a coverage
+      hole exactly where somebody placed a link.
+    * Tracking only the current path's ancestors bounds nothing: with N
+      mutually-linked directories the walk enumerates every simple path through
+      the link graph, which is factorial in N. A few kilobytes of metadata
+      inside the scanned tree would be enough to wedge the scan.
+
+    Here a directory is walked once as itself, plus once for every followed
+    link whose target is an ancestor of it (or the directory itself). Followed
+    links have distinct targets, and a directory has at most ``depth``
+    ancestors, so the bound is ``depth + 1`` walks per directory: the cost is a
+    function of the tree's own shape, not of how the links are wired. That is
+    what makes it safe — the alternative below is factorial in the number of
+    links — but it is not a constant, and a deep chain with one link aimed at
+    each level really does walk the deepest subtree ``depth + 1`` times.
+
+    Content reachable through a contained link is listed under the link's path
+    as well as its real one — those are two real paths, and a later verify of
+    the same tree walks it the same way.
+
+    A link whose identity cannot be read is not followed: we cannot show it is
+    not a cycle. Nothing is lost — containment means its target is already
+    covered under its real path.
     """
     root = Path(folder)
     if not root.exists():
@@ -309,7 +384,10 @@ def iter_files(
 
     root_resolved = root.resolve()
     excluded = {Path(p).resolve() for p in (exclude or ())}
-    visited: set[tuple[int, int]] = set()
+    traversed: set[tuple[int, int]] = set()
+    root_identity = _file_identity(root)
+    if root_identity is not None:
+        traversed.add(root_identity)
 
     def _contained(path: Path) -> bool:
         try:
@@ -337,20 +415,20 @@ def iter_files(
             except OSError:
                 is_link = False
 
+            if is_link and not follow_symlinks:
+                continue  # never traverse a junction/symlink by default
+            if is_link and not _contained(path):
+                continue  # the target escapes the root: never smuggle it in
+
             if entry.is_dir(follow_symlinks=False):
-                if is_link and not follow_symlinks:
-                    continue  # never traverse a junction/symlink by default
-                if is_link and not _contained(path):
-                    continue  # escapes the root
                 identity = _file_identity(path)
+                if is_link:
+                    if identity is None or identity in traversed:
+                        continue
                 if identity is not None:
-                    if identity in visited:
-                        continue  # cycle
-                    visited.add(identity)
+                    traversed.add(identity)
                 yield from _walk(path)
             elif entry.is_file(follow_symlinks=False):
-                if is_link and not follow_symlinks:
-                    continue
                 yield path
 
     yield from _walk(root)
@@ -368,6 +446,25 @@ def _is_reparse_point(entry: "os.DirEntry[str]") -> bool:
     return bool(attrs & FILE_ATTRIBUTE_REPARSE_POINT)
 
 
+def enumerate_files(
+    folder: str | Path,
+    *,
+    follow_symlinks: bool = False,
+    exclude: Optional[Iterable[str | Path]] = None,
+) -> list[Path]:
+    """
+    Materialise **one** deterministic list of the files under *folder*.
+
+    Scanners must derive both their progress denominator and their processing
+    loop from a single call to this function. Counting with one walk and then
+    processing with a second one is a race with the filesystem: a file created
+    in between makes ``done`` overshoot ``total``, and one deleted in between
+    leaves the bar short of 100% forever. Detecting *that* the tree changed is
+    a separate job, done by comparing inventories before and after the scan.
+    """
+    return list(iter_files(folder, follow_symlinks=follow_symlinks, exclude=exclude))
+
+
 def count_files(
     folder: str | Path,
     *,
@@ -377,10 +474,31 @@ def count_files(
     """
     Return the number of regular files under *folder*.
 
-    Uses the same traversal rules as :func:`iter_files` so the progress
-    denominator matches what will actually be processed.
+    Uses the same traversal rules as :func:`iter_files` so the count matches
+    what a scan would process. Scanners should prefer
+    ``len(enumerate_files(...))`` so the count and the work share one walk.
     """
     return sum(1 for _ in iter_files(folder, follow_symlinks=follow_symlinks, exclude=exclude))
+
+
+def inventory_for_paths(
+    folder: str | Path, paths: Iterable[Path]
+) -> dict[str, FileSnapshot]:
+    """
+    Build an inventory from an already-enumerated file list.
+
+    Lets a scanner reuse the list it will actually process instead of walking
+    the tree again just to describe it.
+    """
+    root = Path(folder).resolve()
+    out: dict[str, FileSnapshot] = {}
+    for path in paths:
+        try:
+            rel = path.resolve().relative_to(root).as_posix()
+            out[rel] = FileSnapshot.from_stat(path.stat())
+        except (OSError, ValueError):
+            continue
+    return out
 
 
 def snapshot_inventory(
@@ -395,14 +513,10 @@ def snapshot_inventory(
     Comparing the inventory taken before a scan with one taken after tells us
     whether files were added, removed or modified *while we were scanning* —
     which is what makes an "incomplete" verdict possible instead of quietly
-    reporting a manifest that never matched any single point in time.
+    reporting a manifest that never matched any single point in time. This one
+    deliberately re-walks the tree: that is how a newly appeared file is seen.
     """
     root = Path(folder).resolve()
-    out: dict[str, FileSnapshot] = {}
-    for path in iter_files(root, follow_symlinks=follow_symlinks, exclude=exclude):
-        try:
-            rel = path.resolve().relative_to(root).as_posix()
-            out[rel] = FileSnapshot.from_stat(path.stat())
-        except (OSError, ValueError):
-            continue
-    return out
+    return inventory_for_paths(
+        root, iter_files(root, follow_symlinks=follow_symlinks, exclude=exclude)
+    )

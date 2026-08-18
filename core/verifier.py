@@ -18,9 +18,11 @@ from typing import Sequence
 from core.hash_utils import (
     HashError,
     ProgressEvent,
-    count_files,
+    ScanState,
+    enumerate_files,
     hash_file_with_snapshot,
-    iter_files,
+    inventory_for_paths,
+    is_collision_prone,
     snapshot_inventory,
 )
 from core.manifest_manager import Manifest, ManifestError, SignatureState
@@ -64,6 +66,8 @@ class VerificationResult:
     changed_during_scan: list[str] = field(default_factory=list)
     # True when the caller explicitly accepted an unverifiable reference.
     policy_accepted: bool = False
+    # True when the caller stopped the run before it covered the folder.
+    cancelled: bool = False
 
     # ------------------------------------------------------------------
     # Typed outcome fields. These replace the ambiguous `is_clean`, which
@@ -77,8 +81,13 @@ class VerificationResult:
 
     @property
     def scan_complete(self) -> bool:
-        """The tree did not shift underneath us during the scan."""
-        return not self.changed_during_scan
+        """
+        The whole folder was observed and the tree did not shift underneath us.
+
+        A cancelled run stopped at an arbitrary file, so it never observed the
+        folder — whatever it did compare says nothing about the rest.
+        """
+        return not self.changed_during_scan and not self.cancelled
 
     @property
     def reference_trusted(self) -> bool:
@@ -86,9 +95,26 @@ class VerificationResult:
         return self.signature_state is SignatureState.TRUSTED
 
     @property
+    def collision_prone_algorithm(self) -> bool:
+        """
+        True when the comparison used MD5 or SHA-1.
+
+        Matching digests under a collision-prone algorithm shows the files
+        agree with the reference; it does not show they were not replaced,
+        because an attacker able to choose the content can produce a different
+        file with the same digest.
+        """
+        return is_collision_prone(self.algorithm)
+
+    @property
     def trusted_match(self) -> bool:
         """The only combination that means "verified against a trusted reference"."""
-        return self.files_match and self.scan_complete and self.reference_trusted
+        return (
+            self.files_match
+            and self.scan_complete
+            and self.reference_trusted
+            and not self.collision_prone_algorithm
+        )
 
     # ------------------------------------------------------------------
     @property
@@ -137,6 +163,8 @@ class VerificationResult:
             "reference_trusted": self.reference_trusted,
             "trusted_match": self.trusted_match,
             "policy_accepted": self.policy_accepted,
+            "cancelled": self.cancelled,
+            "collision_prone_algorithm": self.collision_prone_algorithm,
             "changed_during_scan": list(self.changed_during_scan),
             # Deprecated; kept for existing readers. Never means "trusted".
             "is_clean": self.is_clean,
@@ -169,6 +197,7 @@ class Verifier:
         follow_symlinks: bool = False,
         exclude: Optional[Sequence[str | Path]] = None,
         recheck: bool = True,
+        cancel: Optional[Callable[[], bool]] = None,
     ) -> VerificationResult:
         """
         Compare *folder* against the manifest.
@@ -213,24 +242,73 @@ class Verifier:
 
         walk_kwargs = {"follow_symlinks": follow_symlinks, "exclude": list(exclude or ())}
 
+        state = {"total": 0, "processed": 0, "announced": False}
+
+        def _announce(scan_state: ScanState) -> None:
+            """Emit the single terminal event. Safe from any exit path."""
+            if on_progress is None or state["announced"]:
+                return
+            state["announced"] = True
+            on_progress(
+                ProgressEvent(
+                    done=state["processed"], total=state["total"],
+                    path="", state=scan_state,
+                )
+            )
+
+        try:
+            return self._compare(
+                root, result, walk_kwargs, recheck, cancel, on_progress,
+                _announce, state,
+            )
+        except BaseException:
+            # The tree can vanish underneath us mid-scan. A caller that stops
+            # its spinner on a terminal event would wait forever, so say the
+            # run ended before letting the error out.
+            _announce(ScanState.FAILED)
+            raise
+
+    def _compare(
+        self,
+        root: Path,
+        result: "VerificationResult",
+        walk_kwargs: dict,
+        recheck: bool,
+        cancel: Optional[Callable[[], bool]],
+        on_progress: Optional[Callable[[ProgressEvent], None]],
+        _announce: Callable[[ScanState], None],
+        state: dict,
+    ) -> "VerificationResult":
+        """The comparison itself; :meth:`verify` owns the terminal event."""
+        algorithm = result.algorithm
+
         # Inventory the tree before and after. Hashing a file tells us what it
         # contained *at that moment*; only comparing the whole tree's state
         # across the scan reveals a file that was swapped, added or deleted
         # after we had already read it.
-        before_inventory = snapshot_inventory(root, **walk_kwargs)
-
-        # Pre-count so the UI can render a real progress bar instead of
-        # an indeterminate spinner.
-        total = count_files(root, **walk_kwargs) if on_progress is not None else 0
+        # ONE enumeration feeds both the progress denominator and the loop:
+        # counting with a separate walk lets a file created in between push
+        # `done` past `total`.
+        paths = enumerate_files(root, **walk_kwargs)
+        before_inventory = inventory_for_paths(root, paths)
+        total = len(paths)
+        state["total"] = total
 
         # We always re-check using the manifest's algorithm so that the
         # comparison is apples-to-apples even if the user changes their
         # default later on.
         seen_relative_paths: set[str] = set()
+        cancelled = False
+        processed = 0
 
-        for index, file_path in enumerate(iter_files(root, **walk_kwargs), start=1):
+        for index, file_path in enumerate(paths, start=1):
+            if cancel is not None and cancel():
+                cancelled = True
+                break
             rel = file_path.relative_to(root).as_posix()
             seen_relative_paths.add(rel)
+            processed = index
+            state["processed"] = index
 
             try:
                 # Strict, handle-bound: the size we compare comes from the same
@@ -264,6 +342,19 @@ class Verifier:
 
             if on_progress is not None:
                 on_progress(ProgressEvent(done=index, total=total, path=rel))
+
+        result.cancelled = cancelled
+
+        if cancelled:
+            # Everything below assumes the folder was walked to the end. The
+            # manifest entries we never reached are simply unexamined; calling
+            # them "missing" would be an accusation we did not check.
+            result.unchanged.sort()
+            result.modified.sort(key=lambda m: m.path)
+            result.new.sort()
+            result.errors.sort(key=lambda e: e.path)
+            _announce(ScanState.CANCELLED)
+            return result
 
         # Anything in the manifest we did not encounter is missing.
         for rel in self.manifest.entries.keys():
@@ -329,4 +420,8 @@ class Verifier:
         result.new.sort()
         result.missing.sort()
         result.errors.sort(key=lambda e: e.path)
+
+        # One terminal event, always last — the caller's signal that there is
+        # nothing more coming, even when the folder held no files.
+        _announce(ScanState.COMPLETED)
         return result
