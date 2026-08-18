@@ -49,6 +49,15 @@ the verdict won.
   (incomplete scan), `7` (cancelled).
 - `ScanState` and a `cancel` predicate for `build_manifest_for_folder` and
   `Verifier.verify`.
+- **A Cancel button on the Trust Check screen.** The cancellation machinery was
+  already there — a session carries a token, the pipeline polls it at every
+  stage boundary — but nothing the user could press fired it, so a scan of the
+  wrong file could only be stopped by closing the window. The button is enabled
+  exactly while a scan runs. Because cancellation is cooperative it shows
+  "İptal ediliyor…" and waits for the worker to reach its next stage rather
+  than claiming the scan is already over, and the end-state card now gives
+  cancel-specific advice instead of telling someone who chose to stop that they
+  should fix a problem.
 
 ### Changed
 - **Risk decisions are a monotonic table, not a score.** Any VirusTotal
@@ -95,7 +104,7 @@ the verdict won.
   no PATH fallback, no `-ExecutionPolicy Bypass`.
 
 ### Tests
-- 37 → 528, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
+- 37 → 530, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
   `PYTHONIOENCODING` unset, and under explicit UTF-8.
 - `tools/verify_fix_coverage.py` reverts each fix in a scratch copy and requires
   the test that claims to cover it to fail, so a test that asserts nothing is

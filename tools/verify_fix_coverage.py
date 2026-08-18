@@ -168,6 +168,29 @@ REVERTS = [
      "tests.test_drop_path_decoding.DecodeDroppedPathTests"
      ".test_the_view_asks_the_library_for_unicode"),
 
+    # The button can be present, enabled and wired to nothing: reverting only
+    # the call that fires the token leaves a control that looks alive.
+    ("cancel button actually cancels", "gui/views/trust_check_view.py",
+     "        self._controller.cancel()\n"
+     "        self.cancel_button.state([\"disabled\"])\n",
+     "        self.cancel_button.state([\"disabled\"])\n",
+     "tests.test_gui_cancel_button.CancelButtonTests"
+     ".test_pressing_cancel_stops_a_running_scan"),
+
+    # The controller discards a result that lands after the cancel, so no
+    # terminal branch fires and the screen would claim to still be scanning.
+    ("cancelled scan always reaches an end state", "gui/views/trust_check_view.py",
+     "            and self._controller.state is ScanState.CANCELLED\n",
+     "            and False\n",
+     "tests.test_gui_cancel_button.CancelButtonTests"
+     ".test_a_scan_that_finishes_just_after_cancel_still_ends_the_screen"),
+
+    ("cancel button is enabled only while busy", "gui/views/trust_check_view.py",
+     "        self.cancel_button.state([\"!disabled\"] if busy else [\"disabled\"])\n",
+     "        self.cancel_button.state([\"disabled\"])\n",
+     "tests.test_gui_cancel_button.CancelButtonTests"
+     ".test_cancel_is_only_usable_while_a_scan_is_running"),
+
     ("GUI reports an underivable output path", "gui/app.py",
      "        except (ValueError, OSError) as exc:\n",
      "        except ZeroDivisionError as exc:\n",

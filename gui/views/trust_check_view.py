@@ -26,7 +26,7 @@ from core.baseline import (
 )
 from core.hash_utils import HashError, compute_file_hashes
 from core.local_verify import LocalStoreError, LocalVerifyStatus, LocalVerifyStore
-from core.scan_controller import ScanCancelled, ScanController
+from core.scan_controller import ScanCancelled, ScanController, ScanState
 from core.risk_engine import RiskLevel
 from core.signature_checker import SignatureStatus
 from core.trust_pipeline import (
@@ -185,6 +185,14 @@ class TrustCheckView(ttk.Frame):
         )
         self.scan_button.pack(side="left", padx=(8, 0))
         self.scan_button.state(["disabled"])
+        # Enabled only while a scan runs — see _set_busy. Without it the only
+        # way to stop a scan was to close the window, so picking the wrong
+        # file meant waiting the whole scan out.
+        self.cancel_button = ttk.Button(
+            btns, text="İptal", command=self._on_cancel
+        )
+        self.cancel_button.pack(side="left", padx=(8, 0))
+        self.cancel_button.state(["disabled"])
 
         # Privacy state must be visible on the main screen, not buried in
         # Settings: the user should always know whether anything leaves the
@@ -498,6 +506,27 @@ class TrustCheckView(ttk.Frame):
         # One scheduler only — _poll_queue reschedules itself while busy.
         self._schedule_poll()
 
+    def _on_cancel(self) -> None:
+        """
+        Ask the running scan to stop.
+
+        ``cancel()``, never ``shutdown()``: shutdown marks the controller torn
+        down for good, so every later session would be rejected and the screen
+        could never scan again. The two are one keystroke apart in this file,
+        and only one of them is a cancel button.
+
+        Cancellation is cooperative — the worker notices at the next pipeline
+        stage boundary, and a VirusTotal or signature stage can take seconds.
+        So this does not draw the terminal card itself. It disables the button
+        and says what is happening; the card appears when the worker actually
+        reports back, which is the only moment the scan is really over.
+        """
+        if not self._controller.is_busy:
+            return
+        self._controller.cancel()
+        self.cancel_button.state(["disabled"])
+        self._set_status("İptal ediliyor…")
+
     def _scan_worker(self, session) -> None:
         path = session.path
         try:
@@ -557,11 +586,7 @@ class TrustCheckView(ttk.Frame):
                 if kind == "cancelled":
                     if not self._controller.deliver_cancelled(session):
                         continue        # stale: ignore entirely
-                    self._set_status("İptal edildi.")
-                    self._show_terminal_failure(
-                        "Tarama iptal edildi",
-                        "Tarama siz iptal ettiğiniz için tamamlanmadı.",
-                    )
+                    self._show_cancelled_end_state()
                     terminal_handled = True
                 elif kind == "done":
                     if not self._controller.deliver_result(session, data):
@@ -581,6 +606,20 @@ class TrustCheckView(ttk.Frame):
                     terminal_handled = True
         except queue.Empty:
             pass
+
+        # A worker that reached its last stage boundary before the user
+        # clicked Cancel delivers a perfectly good result a moment later. The
+        # controller is right to discard it — the user asked to stop — but then
+        # none of the branches above fire, and without this the screen keeps
+        # "Dosya taranıyor, lütfen bekleyin…" with every button disabled: a
+        # finished scan that says it is still running and cannot be restarted.
+        if (
+            not terminal_handled
+            and self._busy
+            and self._controller.state is ScanState.CANCELLED
+        ):
+            self._show_cancelled_end_state()
+            terminal_handled = True
 
         if terminal_handled:
             self._set_busy(False)
@@ -616,17 +655,41 @@ class TrustCheckView(ttk.Frame):
                 pass
             self._poll_after_id = None
 
-    def _show_terminal_failure(self, headline: str, detail: str) -> None:
+    def _show_cancelled_end_state(self) -> None:
+        """
+        The one place that says "you cancelled this".
+
+        Reached two ways — the worker noticed the token and reported back, or
+        it finished first and the controller discarded the result — and both
+        must leave the screen saying the same thing.
+        """
+        self._set_status("İptal edildi.")
+        self._show_terminal_failure(
+            "Tarama iptal edildi",
+            "Tarama siz iptal ettiğiniz için tamamlanmadı.",
+            advice="Hazır olduğunuzda yeniden tarayabilirsiniz.",
+        )
+
+    def _show_terminal_failure(
+        self,
+        headline: str,
+        detail: str,
+        advice: str = "Sorunu giderip tekrar deneyin.",
+    ) -> None:
         """
         Replace the in-progress card with an explicit end state.
 
         A failed or cancelled scan must not leave the "scanning, please
         wait…" text or the previous file's evidence on screen.
+
+        *advice* is what to do next, and it is not the same sentence in both
+        cases: telling someone who deliberately pressed Cancel to "fix the
+        problem" describes a failure that did not happen.
         """
         self._clear_summary()
         self._clear_technical_tabs()
         self.headline_var.set(headline)
-        self.advice_var.set(detail + "  Sorunu giderip tekrar deneyin.")
+        self.advice_var.set(f"{detail}  {advice}")
 
     def rescan_path(self, path: str) -> bool:
         """
@@ -703,6 +766,10 @@ class TrustCheckView(ttk.Frame):
         self._busy = busy
         state = ["disabled"] if busy else ["!disabled"]
         self.scan_button.state(state)
+        # The exact inverse of the scan button: stopping only means something
+        # while something is running, and an enabled Cancel on an idle screen
+        # invites a press that would silently do nothing.
+        self.cancel_button.state(["!disabled"] if busy else ["disabled"])
         if not busy:
             # Re-enable strictly on the controller's verdict: a result that
             # was superseded or errored must leave every result action off.

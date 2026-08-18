@@ -29,15 +29,21 @@ alıyor.
 **Yapılacak:** Tek authoritative dil kaynağı; Ayarlar görünümü açıldığında
 draft'ı canlı dilden tazelemek veya dili tamamen `AppSettings`'e taşımak.
 
-## 3. Kullanıcıya görünür "İptal" düğmesi yok
+## 3. ~~Kullanıcıya görünür "İptal" düğmesi yok~~ — Trust Check için KAPANDI
 
-İptal altyapısı çalışıyor (`ScanSession.cancel()`, pipeline aşama sınırlarında
-kontrol ediyor, `shutdown()` bounded join yapıyor) ama tarama sırasında
-kullanıcının basabileceği bir düğme yok — yalnız pencere kapatma/dil değişimi
-iptali tetikliyor.
+Trust Check ekranına İptal düğmesi eklendi (`gui/views/trust_check_view.py`).
+`_controller.cancel()` çağırıyor (`shutdown()` **değil** — o denetleyiciyi
+kalıcı olarak kapatır ve ekran bir daha tarama yapamaz), `_set_busy` ile tarama
+sırasında etkin / boştayken pasif, işbirlikçi iptal için "İptal ediliyor…"
+geçiş durumu gösteriyor. Terminal kart artık iptale özel öğüt veriyor
+("Hazır olduğunuzda yeniden tarayabilirsiniz." — iptal eden kullanıcıya
+"sorunu giderin" demek yanlıştı).
 
-**Yapılacak:** Tarama sırasında etkin "İptal" düğmesi; iptal sonrası terminal
-kart (`_show_terminal_failure` zaten hazır).
+Testler: `tests/test_gui_cancel_button.py`, ikisi de
+`tools/verify_fix_coverage.py` ile tutuluyor.
+
+> **Kalan kısım — Gelişmiş sekmeleri (madde 9).** Hash / Verify / Report
+> sekmelerinde hâlâ iptal yok.
 
 ## 4. Ayarlar'daki "Anahtarı Test Et" için ortak görev yöneticisi yok
 
@@ -81,9 +87,15 @@ da CI'da dosya symlink'i kuran bir regresyon testi koş.
 
 ## 8. Atfedilemeyen `<AD>.<UZANTI>.tmp` artığı — kapıyı aralıklı düşürüyor
 
-Tam süit koşularının küçük bir kısmında (bu turda **25 koşuda 1**), temizlik
-sırasında bir test temp dizininde 0 baytlık `KNOWN_FILES.JSON.tmp` beliriyor ve
-`DiagnosticTempDir` `InconclusiveCleanupError` fırlatıyor. Bu **kasıtlı**:
+Tam süit koşularının küçük bir kısmında temizlik sırasında bir test temp
+dizininde tanınmayan bir `.tmp` girdisi beliriyor ve `DiagnosticTempDir`
+`InconclusiveCleanupError` fırlatıyor. İki kez gözlendi:
+
+- `hvt-test-*` içinde 0 baytlık `KNOWN_FILES.JSON.tmp` (dosya biçimi),
+- `hvt-migration-*/user/HashTool` dizini `WinError 145` ile silinemedi
+  (dizin biçimi — aynı aile, temizlik penceresinde beliren girdi).
+
+Sıklık: ~30 tam süit koşusunda 2. Bu **kasıtlı**:
 süreç düzeyinde kanıt olmadan dosyayı "başka bir programın" ilan etmek, gecikmeli
 kendi yazıcımızın tanınmayan bir adın arkasına saklanmasına izin verirdi
 (`tests/test_support_harness.py::test_unidentified_file_is_inconclusive_not_a_pass`).
@@ -103,3 +115,32 @@ Eldeki kanıt dışarıyı gösteriyor ama **atıf yapılmadı**:
 tespit et. Atıf yapılırsa `_classify_leftovers`'a gerekçeli bir istisna
 eklenebilir; yapılamazsa kapı olduğu gibi kalmalı — aralıklı kırmızı, sessiz
 yeşilden iyidir.
+
+## 9. Gelişmiş sekmelerinde iptal yok ve kapanışta thread terk ediliyor
+
+Madde 3 Trust Check için kapandı; Gelişmiş > Hash / Verify / Report sekmeleri
+hâlâ iptal edilemiyor. Üçü de tek bir çıkış noktasından geçiyor
+(`HashToolApp.run_async`, `gui/app.py:488`), yani iptal oraya eklenirse üçü
+birden kazanır.
+
+Eksikler:
+
+- `_Worker` (`gui/app.py:108-147`) bir daemon thread + kuyruk; **iptal jetonu
+  yok**, session kimliği yok, join yok.
+- Çekirdek API'ler iptali zaten destekliyor ama GUI geçmiyor:
+  `build_manifest_for_folder(..., cancel=...)` (`core/manifest_manager.py`,
+  her dosyadan önce yoklanıyor) ve `Verifier.verify(..., cancel=...)`
+  (`core/verifier.py`). Sözleşme `() -> bool` yoklanan yüklem; bir
+  `ScanSession` `cancel=lambda: session.cancelled` ile birebir uyuyor.
+- **Asıl kusur:** `HashToolApp.destroy()` yalnız `_shutdown_active_scans()`
+  (Trust Check) ve `_cancel_scheduled_callbacks()` çağırıyor; `self._worker`
+  ne iptal ediliyor ne join'leniyor. Yani çalışan bir klasör hash'i sırasında
+  pencere kapatılırsa thread daemon olarak **terk ediliyor** — Trust Check
+  için düzeltilmiş olan sınıfın aynısı burada açık.
+- Çalıştır düğmeleri anonim yerel değişken (`gui/app.py:616-618, 796-798`),
+  `self`'e atanmıyor; hiçbir kod onları pasifleştiremiyor. Bir "meşgul"
+  girişi yok — kopyalanacak desen `TrustCheckView._set_busy`.
+
+**Yapılacak:** `run_async`'e iptal jetonu; durum çubuğuna (pack kullanan
+`_build_statusbar`) İptal düğmesi; iki çekirdek çağrıya `cancel=` geçir;
+`destroy()` içinde bounded join. Önce kırmızı test.
