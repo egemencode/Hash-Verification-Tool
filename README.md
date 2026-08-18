@@ -201,11 +201,18 @@ The other top-level tabs:
 - **Ayarlar** — VirusTotal key (with **Anahtarı Kaldır** to delete a stored
   one), auto-query toggle, history limit, UI language.
 - **Gelişmiş** — the original v1.1 Hash / Verify / Report tools for
-  bulk folder integrity checks. **Doğrula** takes a *Güvenilen anahtar* — the
-  same `.pub` file, private key file or raw hex that `--trusted-key` accepts —
-  which is what lets the graphical path reach a verified-origin verdict rather
-  than only "signed, source unverified". The status bar has an **İptal**
-  button for whichever of the three is running.
+  bulk folder integrity checks, now with the whole signing lifecycle:
+  - **Hash** takes an *İmzalama anahtarı* and signs the folder manifest it
+    writes, under the same placement rules the CLI enforces (the key may not
+    live inside the scanned folder or beside the manifest).
+  - **Doğrula** takes a *Güvenilen anahtar* — the same `.pub` file, private key
+    file or raw hex that `--trusted-key` accepts — which is what lets the
+    graphical path reach a verified-origin verdict rather than only "signed,
+    source unverified".
+  - The status bar has an **İptal** button for whichever of the three is
+    running.
+
+  Keys themselves are still created with `keygen` on the CLI.
 
 ---
 

@@ -69,7 +69,7 @@ callback'i `_poll_after_id` disiplinine tabi değil.
 **Yapılacak:** Uygulama geneli tek görev yöneticisi (session kimliği, iptal,
 bounded join, tek scheduler) ve Ayarlar test akışının ona bağlanması.
 
-## 5. GUI'de imzalama akışı yok — **doğrulama yarısı KAPANDI**
+## 5. ~~GUI'de imzalama akışı yok~~ — KAPANDI
 
 ### ✔ Doğrula sekmesi — güvenilen anahtar
 
@@ -100,14 +100,32 @@ Ek davranışlar (hepsi testle tutuluyor):
 
 Testler: `tests/test_gui_trusted_key.py` (5 davranış testi).
 
-### ☐ Kalan: Hash sekmesinden imzalama
+### ✔ Hash sekmesi — imzalama
 
-`keygen` / `sign` / `--sign-key` hâlâ yalnız CLI'da; GUI'den üretilen her
-manifest imzasız.
+"İmzalama anahtarı (opsiyonel)" alanı eklendi. GUI'den üretilen manifest artık
+imzalanabiliyor ve **gerçek CLI `verify --trusted-key` ile doğrulanıyor** —
+testin iddiası bu, "imza bloğu var" değil.
 
-**Yapılacak:** Gelişmiş > Hash sekmesine anahtar seçimi ve "Manifesti imzala".
-Yerleşim kuralları `core/scan_policy.py`'de hazır (anahtar taranan klasörün
-içinde / manifestin yanında olamaz), CLI ile aynı karar tablosu kullanılmalı.
+CLI ile aynı davranışlar:
+
+- `sign_key` artık `evaluate_hash_request`'e geçiyor, yani anahtarın taranan
+  klasörün içinde ya da manifestin yanında olması **aynı ortak karar
+  tablosuyla** engelleniyor. Tablo zaten vardı; grafik yol ona danışmıyordu.
+- Anahtar **tarama başlamadan** çözülüyor. Okunamayan anahtar girdi hatası;
+  sonradan fark etmek ya işi çöpe atmak ya da — çok daha kötüsü — kullanıcı
+  imzaladığını sanırken manifesti imzasız yazmak olurdu.
+- İmza kaydetmeden **önce** ve yalnız `build.complete` iken atılıyor: bilerek
+  eksik bir tarifi imzalamak, tam da bahsetmediği boşluklara tanıklık etmek
+  olurdu.
+- Tek dosya modunda anahtar reddediliyor (imza envantere tanıklık eder).
+- Sonuç günlüğü eşleşen `.pub` yolunu yazıyor — karşı tarafın doğrulayamadığı
+  imza süstür.
+
+Testler: `tests/test_gui_signing.py` (6 davranış testi).
+
+> Not: `main.py`'nin `load_private_key` sarmalayıcısı `.private_hex` çıkarıyor;
+> `core.key_files.load_private_key` ise `PrivateKeyFile` nesnesi döndürüyor.
+> GUI doğrudan çekirdeği kullandığı için hex'i kendisi çıkarıyor.
 
 ## 6. Uzun yol dayanıklılığı yalnız kaynak üzerinde doğrulandı
 

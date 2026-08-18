@@ -68,10 +68,22 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "hash.path": "Path:",
         "hash.algorithm": "Algorithm:",
         "hash.output": "Manifest output (optional):",
+        "hash.sign_key": "Signing key (optional):",
+        "hash.sign_key.hint": (
+            "A private key from `keygen`. It may not live inside the folder "
+            "being scanned or next to the manifest it signs — anyone who "
+            "receives those receives the key and can forge manifests. Share "
+            "the matching .pub separately."
+        ),
+        "hash.sign_key.folder_only": (
+            "A signing key applies to folder manifests only: a signature "
+            "attests to an inventory, and a single-file digest is not one."
+        ),
         "hash.btn": "Compute Hash",
         "hash.result": "Result:",
         "hash.picker.file_title": "Select file to hash",
         "hash.picker.folder_title": "Select folder to hash",
+        "hash.picker.sign_key_title": "Select signing key",
         "hash.picker.save_title": "Save manifest as…",
         "hash.missing_title": "Missing path",
         "hash.missing_body": "Please select a file or folder.",
@@ -88,6 +100,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "hash.log.header": "\n--- Hashing ({mode}, {algo}) ---\n{target}\n",
         "hash.log.digest": "Digest : {digest}\n",
         "hash.log.saved": "Manifest saved: {path}\n",
+        "hash.log.signed": "Manifest signed. Verify with the trusted key: {pub}\n",
         "hash.log.count": "Files hashed : {count}\n",
         "hash.log.cancelled": "Cancelled — nothing was written.\n",
         "hash.log.done": "Done.\n",
@@ -199,10 +212,22 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "hash.path": "Yol:",
         "hash.algorithm": "Algoritma:",
         "hash.output": "Manifest çıktısı (opsiyonel):",
+        "hash.sign_key": "İmzalama anahtarı (opsiyonel):",
+        "hash.sign_key.hint": (
+            "`keygen`'in ürettiği özel anahtar. Taranan klasörün içinde ya da "
+            "imzaladığı manifestin yanında olamaz — onları alan herkes anahtarı "
+            "da alır ve sizin adınıza manifest imzalayabilir. Eşleşen .pub "
+            "dosyasını ayrı bir kanalla iletin."
+        ),
+        "hash.sign_key.folder_only": (
+            "İmzalama anahtarı yalnız klasör manifestleri için geçerli: imza bir "
+            "envantere tanıklık eder, tek dosyanın özeti envanter değildir."
+        ),
         "hash.btn": "Hash Hesapla",
         "hash.result": "Sonuç:",
         "hash.picker.file_title": "Hash'lenecek dosyayı seç",
         "hash.picker.folder_title": "Hash'lenecek klasörü seç",
+        "hash.picker.sign_key_title": "İmzalama anahtarını seç",
         "hash.picker.save_title": "Manifest'i farklı kaydet…",
         "hash.missing_title": "Yol eksik",
         "hash.missing_body": "Lütfen bir dosya veya klasör seçin.",
@@ -219,6 +244,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "hash.log.header": "\n--- Hash ({mode}, {algo}) ---\n{target}\n",
         "hash.log.digest": "Özet    : {digest}\n",
         "hash.log.saved": "Manifest kaydedildi: {path}\n",
+        "hash.log.signed": "Manifest imzalandı. Doğrularken güvenilen anahtar: {pub}\n",
         "hash.log.count": "Hash'lenen dosya : {count}\n",
         "hash.log.cancelled": "İptal edildi — hiçbir şey yazılmadı.\n",
         "hash.log.done": "Tamamlandı.\n",

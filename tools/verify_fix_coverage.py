@@ -268,6 +268,36 @@ REVERTS = [
      "tests.test_gui_trusted_key.VerifyTabTrustedKeyTests"
      ".test_an_unreadable_key_is_reported_and_nothing_is_claimed"),
 
+    # Every manifest the GUI produced was unsigned, and an unsigned manifest
+    # proves nothing: whoever can change the files can change the reference.
+    ("the GUI actually signs the manifest", "gui/app.py",
+     "                manifest.sign(signing_key)\n",
+     "                pass\n",
+     "tests.test_gui_signing.HashTabSigningTests"
+     ".test_a_manifest_signed_from_the_gui_verifies_against_the_public_key"),
+
+    # The placement rules only apply if the graphical path consults the table.
+    ("GUI signing consults the shared policy", "gui/app.py",
+     "            sign_key=sign_key_path,\n",
+     "",
+     "tests.test_gui_signing.HashTabSigningTests"
+     ".test_a_key_inside_the_scanned_folder_is_refused"),
+
+    # Reverting the load makes an unreadable key silently mean "do not sign",
+    # so the run proceeds and writes an unsigned manifest the user believes
+    # is signed.
+    ("an unusable signing key stops the run", "gui/app.py",
+     "                signing_key = load_private_key(sign_key_path).private_hex\n",
+     "                signing_key = None\n",
+     "tests.test_gui_signing.HashTabSigningTests"
+     ".test_an_unusable_key_is_reported_and_nothing_is_written"),
+
+    ("signing is refused for a single file", "gui/app.py",
+     "        if sign_key_path and mode == \"file\":\n",
+     "        if False:\n",
+     "tests.test_gui_signing.HashTabSigningTests"
+     ".test_a_signing_key_is_refused_for_a_single_file"),
+
     ("GUI reports an underivable output path", "gui/app.py",
      "        except (ValueError, OSError) as exc:\n",
      "        except ZeroDivisionError as exc:\n",

@@ -49,6 +49,17 @@ the verdict won.
   (incomplete scan), `7` (cancelled).
 - `ScanState` and a `cancel` predicate for `build_manifest_for_folder` and
   `Verifier.verify`.
+- **Signing from the Hash tab.** Every manifest the GUI produced was unsigned,
+  and an unsigned manifest proves nothing on its own: whoever can change the
+  files can change the reference too. The signing key goes through the same
+  decision table the CLI uses, so a key stored inside the scanned folder or
+  beside the manifest is refused here as well — the table existed, the
+  graphical path simply had not been consulting it. The key is resolved before
+  hashing starts (an unreadable key costs nothing and is reported, rather than
+  discovered after the scan and quietly turned into an unsigned manifest the
+  user believes is signed), the signature is applied before the file is written
+  and only for a complete scan, and the result names the matching `.pub` so the
+  recipient can actually check it.
 - **A trusted-key field on the Verify tab.** `SignatureState.TRUSTED` — the only
   state in which a match says "these files are what the holder of that key
   published" — needs a trusted public key, and the GUI passed none, so its badge

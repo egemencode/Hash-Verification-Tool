@@ -32,7 +32,12 @@ from core.hash_utils import (
     hash_file_with_snapshot,
 )
 from core.history_manager import HistoryManager
-from core.key_files import KeyFileError, load_public_key
+from core.key_files import (
+    KeyFileError,
+    load_private_key,
+    load_public_key,
+    public_path_for,
+)
 from core.local_verify import LocalVerifyStore
 from core.manifest_manager import (
     Manifest,
@@ -692,14 +697,24 @@ class HashTab(_BaseTab):
         self.output_var = tk.StringVar()
         self._path_row(3, t("hash.output"), self.output_var, self._pick_output)
 
+        # An unsigned manifest proves nothing on its own: whoever can change
+        # the files can change the reference too. The placement rules that make
+        # a signature mean something come from the same table the CLI uses.
+        self.sign_key_var = tk.StringVar()
+        self._path_row(4, t("hash.sign_key"), self.sign_key_var, self._pick_sign_key)
+        ttk.Label(
+            self, text=t("hash.sign_key.hint"), foreground="#666", wraplength=680,
+            justify="left",
+        ).grid(row=5, column=1, columnspan=2, sticky="w", pady=(0, 6))
+
         ttk.Button(
             self, text=t("hash.btn"), command=self._on_run, style="Accent.TButton"
-        ).grid(row=4, column=0, columnspan=3, sticky="e", pady=(12, 8))
+        ).grid(row=6, column=0, columnspan=3, sticky="e", pady=(12, 8))
 
-        ttk.Label(self, text=t("hash.result")).grid(row=5, column=0, sticky="w")
+        ttk.Label(self, text=t("hash.result")).grid(row=7, column=0, sticky="w")
         self.output_area = ScrolledText(self, height=18, wrap="word", font=("Consolas", 10))
-        self.output_area.grid(row=6, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
-        self.rowconfigure(6, weight=1)
+        self.output_area.grid(row=8, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
+        self.rowconfigure(8, weight=1)
 
     def _pick_target(self) -> None:
         if self.mode_var.get() == "file":
@@ -708,6 +723,11 @@ class HashTab(_BaseTab):
             path = filedialog.askdirectory(title=t("hash.picker.folder_title"))
         if path:
             self.target_var.set(path)
+
+    def _pick_sign_key(self) -> None:
+        path = filedialog.askopenfilename(title=t("hash.picker.sign_key_title"))
+        if path:
+            self.sign_key_var.set(path)
 
     def _pick_output(self) -> None:
         path = filedialog.asksaveasfilename(
@@ -744,11 +764,19 @@ class HashTab(_BaseTab):
             )
             return
 
+        sign_key_path = self.sign_key_var.get().strip() or None
+        if sign_key_path and mode == "file":
+            # Matching the CLI: a signature attests to a folder inventory, and
+            # a single-file digest is not one.
+            messagebox.showerror(t("hash.err_title"), t("hash.sign_key.folder_only"))
+            return
+
         # The same decision table the CLI uses, so the graphical path cannot
         # end up being the permissive one. Evaluated before any hashing: a
         # refusal must leave nothing behind.
         notices = evaluate_hash_request(
-            mode=mode, target=target, output=saved_to, algorithm=algo
+            mode=mode, target=target, output=saved_to, algorithm=algo,
+            sign_key=sign_key_path,
         )
         blocking = first_blocking(notices)
         if blocking is not None:
@@ -767,6 +795,22 @@ class HashTab(_BaseTab):
             self._append(f"\n⚠ {notice.message}\n")
         for notice in policy_warnings(notices):
             self._append(f"\n⚠ {notice.message}\n")
+
+        # Resolved before any hashing starts, so a key that cannot be read
+        # costs nothing and is reported as the input error it is. Discovering
+        # it after the scan would mean either throwing the work away or — far
+        # worse — writing the manifest unsigned while the user believes they
+        # signed it.
+        signing_key = None
+        if sign_key_path:
+            try:
+                # The hex, not the loaded file object: Manifest.sign takes the
+                # key material.
+                signing_key = load_private_key(sign_key_path).private_hex
+            except KeyFileError as exc:
+                messagebox.showerror(t("hash.err_title"), str(exc))
+                self._append(f"\n⛔ {exc}\n")
+                return
 
         self._append(t("hash.log.header", mode=mode, algo=algo, target=target))
 
@@ -797,6 +841,11 @@ class HashTab(_BaseTab):
                 exclude=[saved_to], cancel=cancel,
             )
             manifest = build.manifest
+            # Signed before it is written, and only when the scan is complete:
+            # a signature over a description that knowingly has holes in it
+            # would attest to exactly the gaps it fails to mention.
+            if signing_key is not None and build.complete:
+                manifest.sign(signing_key)
             # Only a complete build produces a manifest at the expected path;
             # BuildResult.save() refuses otherwise, so we never write first
             # and warn afterwards.
@@ -806,6 +855,7 @@ class HashTab(_BaseTab):
                 "build": build,
                 "count": len(manifest.entries),
                 "output": str(written) if written else None,
+                "signed": signing_key is not None and build.complete,
             }
 
         def show_progress(event: ProgressEvent) -> None:
@@ -831,6 +881,13 @@ class HashTab(_BaseTab):
             self._append(t("hash.log.count", count=result["count"]))
             if result["output"]:
                 self._append(t("hash.log.saved", path=result["output"]))
+            if result.get("signed"):
+                # Name the public half: a signature nobody can check against a
+                # key they trust is decoration.
+                self._append(t(
+                    "hash.log.signed",
+                    pub=public_path_for(self.sign_key_var.get().strip()),
+                ))
             build = result.get("build")
             if build is not None and not build.complete:
                 # Never announce a clean "manifest created" for a folder we
