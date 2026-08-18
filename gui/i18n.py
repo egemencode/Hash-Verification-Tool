@@ -95,6 +95,16 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         # --- Verify tab -----------------------------------------------------
         "verify.folder": "Folder to verify:",
         "verify.manifest": "Manifest JSON:",
+        "verify.trusted_key": "Trusted key (optional):",
+        "verify.trusted_key.hint": (
+            "A .pub file from `keygen`, or the raw hex. Without one a signature "
+            "can only be checked against the manifest's own embedded key, which "
+            "shows internal consistency — not who produced it."
+        ),
+        "verify.trusted_key.tip": (
+            "Tip: to establish where this manifest came from, supply the "
+            "trusted public key above."
+        ),
         "verify.report": "Save report (optional):",
         "verify.btn": "Verify",
         "verify.summary": "Summary:",
@@ -103,6 +113,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "verify.col.path": "Path",
         "verify.picker.folder_title": "Select folder to verify",
         "verify.picker.manifest_title": "Select manifest JSON",
+        "verify.picker.trusted_key_title": "Select trusted public key",
         "verify.picker.report_title": "Save report as…",
         "verify.missing_title": "Missing input",
         "verify.missing_body": "Please select folder and manifest.",
@@ -215,6 +226,17 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         # --- Doğrula sekmesi -----------------------------------------------
         "verify.folder": "Doğrulanacak klasör:",
         "verify.manifest": "Manifest JSON:",
+        "verify.trusted_key": "Güvenilen anahtar (opsiyonel):",
+        "verify.trusted_key.hint": (
+            "`keygen`'in ürettiği .pub dosyası ya da ham hex. Bu olmadan imza "
+            "yalnızca manifestin kendi gömülü anahtarıyla doğrulanabilir; bu da "
+            "içeriğin kendi içinde tutarlı olduğunu gösterir — kimin ürettiğini "
+            "değil."
+        ),
+        "verify.trusted_key.tip": (
+            "İpucu: bu manifestin kaynağını doğrulamak için yukarıya güvendiğiniz "
+            "genel anahtarı verin."
+        ),
         "verify.report": "Raporu kaydet (opsiyonel):",
         "verify.btn": "Doğrula",
         "verify.summary": "Özet:",
@@ -223,6 +245,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "verify.col.path": "Yol",
         "verify.picker.folder_title": "Doğrulanacak klasörü seç",
         "verify.picker.manifest_title": "Manifest JSON seç",
+        "verify.picker.trusted_key_title": "Güvenilen genel anahtarı seç",
         "verify.picker.report_title": "Raporu farklı kaydet…",
         "verify.missing_title": "Girdi eksik",
         "verify.missing_body": "Lütfen klasör ve manifest seçin.",

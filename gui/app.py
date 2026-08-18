@@ -32,6 +32,7 @@ from core.hash_utils import (
     hash_file_with_snapshot,
 )
 from core.history_manager import HistoryManager
+from core.key_files import KeyFileError, load_public_key
 from core.local_verify import LocalVerifyStore
 from core.manifest_manager import (
     Manifest,
@@ -871,18 +872,30 @@ class VerifyTab(_BaseTab):
         self.manifest_var = tk.StringVar()
         self._path_row(1, t("verify.manifest"), self.manifest_var, self._pick_manifest)
 
+        # Next to the manifest, because it is a fact *about* the manifest.
+        # Without it the best reachable verdict is "signed, but the source is
+        # not verified" — which is what the CLI needs --trusted-key for.
+        self.trusted_key_var = tk.StringVar()
+        self._path_row(
+            2, t("verify.trusted_key"), self.trusted_key_var, self._pick_trusted_key
+        )
+        ttk.Label(
+            self, text=t("verify.trusted_key.hint"), foreground="#666", wraplength=680,
+            justify="left",
+        ).grid(row=3, column=1, columnspan=2, sticky="w", pady=(0, 6))
+
         self.report_var = tk.StringVar()
-        self._path_row(2, t("verify.report"), self.report_var, self._pick_report)
+        self._path_row(4, t("verify.report"), self.report_var, self._pick_report)
 
         ttk.Button(
             self, text=t("verify.btn"), command=self._on_run, style="Accent.TButton"
-        ).grid(row=3, column=0, columnspan=3, sticky="e", pady=(12, 8))
+        ).grid(row=5, column=0, columnspan=3, sticky="e", pady=(12, 8))
 
-        ttk.Label(self, text=t("verify.summary")).grid(row=4, column=0, sticky="w")
+        ttk.Label(self, text=t("verify.summary")).grid(row=6, column=0, sticky="w")
         self.summary = ScrolledText(self, height=7, wrap="word", font=("Consolas", 10))
-        self.summary.grid(row=5, column=0, columnspan=3, sticky="nsew", pady=(4, 6))
+        self.summary.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(4, 6))
 
-        ttk.Label(self, text=t("verify.details")).grid(row=6, column=0, sticky="w")
+        ttk.Label(self, text=t("verify.details")).grid(row=8, column=0, sticky="w")
         self.tree = ttk.Treeview(
             self, columns=("status", "path"), show="headings", height=14
         )
@@ -890,15 +903,23 @@ class VerifyTab(_BaseTab):
         self.tree.heading("path", text=t("verify.col.path"))
         self.tree.column("status", width=130, anchor="w", stretch=False)
         self.tree.column("path", anchor="w")
-        self.tree.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
+        self.tree.grid(row=9, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
         for tag, color in STATUS_COLORS.items():
             self.tree.tag_configure(tag, foreground=color)
-        self.rowconfigure(7, weight=1)
+        self.rowconfigure(9, weight=1)
 
     def _pick_folder(self) -> None:
         path = filedialog.askdirectory(title=t("verify.picker.folder_title"))
         if path:
             self.folder_var.set(path)
+
+    def _pick_trusted_key(self) -> None:
+        path = filedialog.askopenfilename(
+            title=t("verify.picker.trusted_key_title"),
+            filetypes=[("Public key", "*.pub"), ("All files", "*.*")],
+        )
+        if path:
+            self.trusted_key_var.set(path)
 
     def _pick_manifest(self) -> None:
         path = filedialog.askopenfilename(
@@ -925,6 +946,19 @@ class VerifyTab(_BaseTab):
             messagebox.showwarning(t("verify.missing_title"), t("verify.missing_body"))
             return
 
+        # Resolved here, on the Tk thread, so an unusable key is reported as
+        # the input error it is. Falling through to an untrusted comparison
+        # would render a screen indistinguishable from a successful one — the
+        # user would believe they had checked provenance when they had not.
+        raw_key = self.trusted_key_var.get().strip()
+        trusted_key = None
+        if raw_key:
+            try:
+                trusted_key = load_public_key(raw_key)
+            except KeyFileError as exc:
+                messagebox.showerror(t("verify.err_title"), str(exc))
+                return
+
         self.summary.delete("1.0", "end")
         self.tree.delete(*self.tree.get_children())
         self.summary.insert("end", t("verify.running") + "\n")
@@ -934,12 +968,12 @@ class VerifyTab(_BaseTab):
         def work(
             emit: Callable[[_Message], None], cancel: Callable[[], bool]
         ) -> dict:
-            manifest = Manifest.load(manifest_path)
+            manifest = Manifest.load(manifest_path, trusted_public_hex=trusted_key)
 
             def on_progress(event: ProgressEvent) -> None:
                 emit(_Message("progress", event))
 
-            result = Verifier(manifest).verify(
+            result = Verifier(manifest, trusted_public_hex=trusted_key).verify(
                 folder, on_progress=on_progress, cancel=cancel
             )
             saved_to = None
@@ -1003,11 +1037,7 @@ class VerifyTab(_BaseTab):
         self.summary.insert("end", f"\n{badge.icon} Manifest güveni: {badge.label}\n")
         self.summary.insert("end", f"   {badge.detail}\n")
         if not badge.provenance_established:
-            self.summary.insert(
-                "end",
-                "   İpucu: imzalı bir manifesti güvendiğiniz genel anahtarla "
-                "doğrulamak için CLI'da 'verify --trusted-key <hex>' kullanın.\n",
-            )
+            self.summary.insert("end", f"   {t('verify.trusted_key.tip')}\n")
         if saved_to:
             self.summary.insert("end", t("verify.log.report_saved", path=saved_to))
 

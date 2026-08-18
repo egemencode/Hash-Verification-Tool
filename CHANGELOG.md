@@ -49,6 +49,17 @@ the verdict won.
   (incomplete scan), `7` (cancelled).
 - `ScanState` and a `cancel` predicate for `build_manifest_for_folder` and
   `Verifier.verify`.
+- **A trusted-key field on the Verify tab.** `SignatureState.TRUSTED` — the only
+  state in which a match says "these files are what the holder of that key
+  published" — needs a trusted public key, and the GUI passed none, so its badge
+  could never read better than "signed, but the source is not verified". The
+  screen said as much and told the user to go and use the CLI. It takes the same
+  inputs `--trusted-key` does: a `.pub` file, a private key file (the public
+  half is derived, never read from the file's own field), or raw hex. The key is
+  checked when the manifest is loaded rather than after the scan, so an
+  untrustworthy reference does not cost a full hash of the tree first, and a key
+  file that cannot be read is reported instead of falling back to an untrusted
+  comparison whose screen looks like a successful one.
 - **A Cancel button for the Advanced tabs, in the status bar.** One worker slot
   serves Hash, Verify and Report, so one control stops whichever is running.
   The token is polled once per file, and a cancelled run reports a distinct

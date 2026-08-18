@@ -190,13 +190,22 @@ local fingerprint) still works.
      next scan will tell you if the file changed.
    - **Raporu Kaydet (JSON / HTML)** — export a shareable report.
 
+A scan can be stopped while it runs: **İptal** next to **Taramayı Başlat**.
+Cancellation is cooperative, so the button shows *İptal ediliyor…* until the
+worker reaches its next stage — a VirusTotal or signature check already in
+flight still has to return.
+
 The other top-level tabs:
 
 - **Geçmiş** — last N scans, double-click a row to re-run the check.
-- **Ayarlar** — VirusTotal key, auto-query toggle, history limit, UI
-  language.
+- **Ayarlar** — VirusTotal key (with **Anahtarı Kaldır** to delete a stored
+  one), auto-query toggle, history limit, UI language.
 - **Gelişmiş** — the original v1.1 Hash / Verify / Report tools for
-  bulk folder integrity checks.
+  bulk folder integrity checks. **Doğrula** takes a *Güvenilen anahtar* — the
+  same `.pub` file, private key file or raw hex that `--trusted-key` accepts —
+  which is what lets the graphical path reach a verified-origin verdict rather
+  than only "signed, source unverified". The status bar has an **İptal**
+  button for whichever of the three is running.
 
 ---
 

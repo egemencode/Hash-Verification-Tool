@@ -69,15 +69,45 @@ callback'i `_poll_after_id` disiplinine tabi değil.
 **Yapılacak:** Uygulama geneli tek görev yöneticisi (session kimliği, iptal,
 bounded join, tek scheduler) ve Ayarlar test akışının ona bağlanması.
 
-## 5. GUI'de imzalama akışı yok
+## 5. GUI'de imzalama akışı yok — **doğrulama yarısı KAPANDI**
 
-`keygen` / `sign` / `--sign-key` yalnız CLI'da. GUI'den üretilen her manifest
-imzasız; doğrularken `--allow-unsigned` karşılığı bir kabul adımı da yok, GUI
-imzasız referansı sessizce kullanıyor.
+### ✔ Doğrula sekmesi — güvenilen anahtar
 
-**Yapılacak:** Gelişmiş > Hash sekmesine anahtar seçimi ve "Manifesti imzala";
-Doğrula sekmesine güvenilen genel anahtar alanı; imzasız referans için CLI'daki
-ile aynı bilinçli kabul adımı.
+Doğrula sekmesine "Güvenilen anahtar (opsiyonel)" alanı eklendi. CLI ile aynı
+sözleşme: `load_public_key` `.pub` dosyası, özel anahtar dosyası (genel yarıyı
+**türetir**) ve ham hex kabul ediyor. Anahtar hem `Manifest.load`'a hem
+`Verifier`'a geçiyor.
+
+Neden gerekliydi: `SignatureState.TRUSTED` — bir eşleşmenin gerçekten "bu
+dosyalar o anahtarı tutan kişinin yayımladıklarıdır" dediği tek durum —
+güvenilen anahtar gerektiriyor. GUI hiçbirine geçmiyordu, dolayısıyla rozet
+kullanıcının diskinde ne olursa olsun *"imzalı ama kaynağı doğrulanmadı"*dan
+iyisini gösteremiyordu. Ekran bunu kabul edip kullanıcıyı **CLI'a
+yönlendiriyordu** — `core/scan_policy.py`'nin bir önceki turda ortadan
+kaldırdığı asimetrinin aynısı: uzman arayüz kaynağı doğrulayabiliyor,
+varsayılan arayüz doğrulayamıyor.
+
+Ek davranışlar (hepsi testle tutuluyor):
+
+- Anahtar **yükleme anında** kontrol ediliyor, tarama sonrasında değil. Büyük
+  bir ağacı gösteren kullanıcı, zaten güvenmediğimiz bir referans uğruna tam
+  bir hash koşusunu beklemiyor.
+- Çözülemeyen/geçersiz anahtar dosyası girdi hatası olarak bildiriliyor —
+  sessizce güvensiz karşılaştırmaya düşülmüyor (o ekran başarılı olandan
+  ayırt edilemezdi).
+- Yanlış anahtar CLI'daki `EXIT_UNTRUSTED_REFERENCE` ile aynı yolu izliyor:
+  karşılaştırma durduruluyor, kurcalama uyarısı gösteriliyor.
+
+Testler: `tests/test_gui_trusted_key.py` (5 davranış testi).
+
+### ☐ Kalan: Hash sekmesinden imzalama
+
+`keygen` / `sign` / `--sign-key` hâlâ yalnız CLI'da; GUI'den üretilen her
+manifest imzasız.
+
+**Yapılacak:** Gelişmiş > Hash sekmesine anahtar seçimi ve "Manifesti imzala".
+Yerleşim kuralları `core/scan_policy.py`'de hazır (anahtar taranan klasörün
+içinde / manifestin yanında olamaz), CLI ile aynı karar tablosu kullanılmalı.
 
 ## 6. Uzun yol dayanıklılığı yalnız kaynak üzerinde doğrulandı
 

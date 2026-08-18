@@ -244,6 +244,30 @@ REVERTS = [
      "tests.test_gui_settings_state.UnreadableKeyRemovalTests"
      ".test_removal_is_abandoned_when_the_user_declines"),
 
+    # Without the key reaching the Verifier, the GUI can never leave
+    # "signed, but the source is not verified" — the safe verdict is
+    # unreachable from the default interface.
+    ("verify passes the trusted key to the core", "gui/app.py",
+     "            result = Verifier(manifest, trusted_public_hex=trusted_key).verify(\n",
+     "            result = Verifier(manifest).verify(\n",
+     "tests.test_gui_trusted_key.VerifyTabTrustedKeyTests"
+     ".test_a_trusted_key_establishes_the_manifest_provenance"),
+
+    # Checking at load time is what stops a full scan of a large tree on the
+    # say-so of a reference we already distrust.
+    ("an untrusted manifest is rejected before scanning", "gui/app.py",
+     "            manifest = Manifest.load(manifest_path, trusted_public_hex=trusted_key)\n",
+     "            manifest = Manifest.load(manifest_path)\n",
+     "tests.test_gui_trusted_key.VerifyTabTrustedKeyTests"
+     ".test_an_untrustworthy_manifest_is_rejected_before_the_folder_is_scanned"),
+
+    ("an unusable trusted key stops the run", "gui/app.py",
+     "                messagebox.showerror(t(\"verify.err_title\"), str(exc))\n"
+     "                return\n",
+     "                trusted_key = None\n",
+     "tests.test_gui_trusted_key.VerifyTabTrustedKeyTests"
+     ".test_an_unreadable_key_is_reported_and_nothing_is_claimed"),
+
     ("GUI reports an underivable output path", "gui/app.py",
      "        except (ValueError, OSError) as exc:\n",
      "        except ZeroDivisionError as exc:\n",
