@@ -584,7 +584,31 @@ class HashToolApp(tk.Tk):
         worker = self._worker
         if worker is None:
             return
-        for msg in worker.drain():
+        if self._dispatch(worker.drain(), on_done, on_error, on_progress):
+            return
+        if worker.is_alive():
+            self.schedule(POLL_INTERVAL_MS, self._poll, on_done, on_error, on_progress)
+            return
+        # The thread queues its terminal message and *then* returns, so a
+        # drain that came up empty a moment ago says nothing about whether one
+        # has arrived since. Looking once more here is the difference between
+        # reporting the run and discarding it: _finish drops the reference to
+        # the worker, so a message missed at this point is missed for good —
+        # a hash run that wrote its manifest, or a verify that failed, and
+        # then said "Hazır." and showed nothing.
+        if self._dispatch(worker.drain(), on_done, on_error, on_progress):
+            return
+        self._finish(t("status.ready"))
+
+    def _dispatch(
+        self,
+        messages: list["_Message"],
+        on_done: Callable[[Any], None],
+        on_error: Optional[Callable[[Exception], None]],
+        on_progress: Optional[Callable[[ProgressEvent], None]],
+    ) -> bool:
+        """Render *messages*; True once a terminal one has been handled."""
+        for msg in messages:
             if msg.kind == "progress":
                 event: ProgressEvent = msg.payload
                 self.progress["value"] = event.percent
@@ -595,23 +619,20 @@ class HashToolApp(tk.Tk):
                 # No on_done: the operation produced nothing the user asked
                 # for, and the tabs' _on_done render a completed result.
                 self._finish(t("status.cancelled"))
-                return
+                return True
             if msg.kind == "done":
                 self.progress["value"] = 100
                 self._finish(t("status.ready"))
                 on_done(msg.payload)
-                return
+                return True
             if msg.kind == "error":
                 self._finish(t("status.error"))
                 if on_error:
                     on_error(msg.payload)
                 else:
                     messagebox.showerror(t("status.error"), str(msg.payload))
-                return
-        if worker.is_alive():
-            self.schedule(POLL_INTERVAL_MS, self._poll, on_done, on_error, on_progress)
-        else:
-            self._finish(t("status.ready"))
+                return True
+        return False
 
     def _finish(self, status: str) -> None:
         self.progress["value"] = 0

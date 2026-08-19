@@ -86,18 +86,42 @@ Testler: `tests/test_task_runner.py` (8), `tests/test_gui_key_test_task.py` (3).
 
 ### ✖ Kalan: Gelişmiş sekmeleri ve Trust Check hâlâ kendi mekanizmalarında
 
-`gui/app.py`'deki `_Worker` ve `core/scan_controller.py` bu turda olduğu gibi
-duruyor. Üçünü aynı commit'te değiştirmek, bir şeyi kanıtlarken üç şeyi kırmak
-olurdu.
+`gui/app.py`'deki `_Worker` ve `core/scan_controller.py` olduğu gibi duruyor.
 
-**Yapılacak (§6B):** `_Worker`'ı koşucuya taşı. `ScanController` tarama durum
-makinesini korusun ama thread/iptal kısmını koşucuya devretsin — o dosyanın
-kendi test takımı var, önce onun neyi tuttuğunu doğrula.
+**§6B'de taşınmadılar — ve bu bilinçli bir karar, ertelenmiş bir iş değil.**
+`_Worker`'a "boşluğu var mı" diye soruldu, cevap hayır çıktı: aynı anda tek
+worker çalışabildiği için (`run_async` ikinciyi "Meşgul" diyaloğuyla
+reddediyor) **kimliğe ihtiyacı yok**; iptal jetonu, sınırlı join ve takipli
+`after` disiplini zaten var. Manifest **yazan** yolu, davranış kazancı olmadan
+yeniden yazmak kötü bir takas. Koşucu, o kod bir dahaki sefere değişmesi
+gerektiğinde hedef biçim olarak duruyor.
 
-> Küçük bir kalıntı, bilerek: görünüm yalnız *güncel görev koşarken* yokluyor.
-> Bayat bir cevap poll durduktan sonra gelirse kuyrukta okunmadan kalıyor.
-> Zararsız (görünümle birlikte atılıyor) ve bir sonraki `drain_current` onu
-> zaten kimliğinden eliyor — ama kapanmış saymayın.
+### ✔ §6B'de bunun yerine gerçek bir kusur çıktı: teslim penceresi
+
+`_poll` önce kuyruğu boşaltıp **sonra** thread canlı mı diye soruyordu. Worker
+terminal mesajını kuyruğa koyup *ondan sonra* dönüyor; iki satırın arasında
+biterse boşaltma boş dönmüş, thread ölü görünüyor ve koşu "bildirecek bir şey
+yok" sayılıyordu. `_finish` aynı zamanda worker referansını da düşürdüğü için
+mesaj **kalıcı olarak** kayboluyordu.
+
+- Hash koşusu: manifest diske yazılıyor, ekran hiçbir şey söylemiyor.
+- Doğrulama: karşılaştırma sonucu hiç görünmüyor.
+- **En kötüsü:** hata düşerse durum çubuğu `status.ready` yazıyor — olmamış
+  bir başarı bildiriliyor.
+
+Düzeltme: thread ölü göründüğünde bir kez daha boşalt.
+Testler: `tests/test_gui_worker_race.py` (3).
+
+> **Trust Check'te bu kusur neden yok:** oradaki poll, yeniden zamanlamaya
+> *denetleyicinin* `is_busy`'sine bakarak karar veriyor — thread'in canlılığına
+> değil. Sonuç teslim edilene kadar denetleyici meşgul kalıyor, dolayısıyla
+> pencere kapanmıyor. `_Worker`'ın böyle bir durumu yoktu. Birleştirme
+> yapılacaksa taşınması gereken şey budur: **thread değil, durum otoritesi.**
+
+> Küçük bir kalıntı, bilerek: Ayarlar görünümü yalnız *güncel görev koşarken*
+> yokluyor. Bayat bir cevap poll durduktan sonra gelirse kuyrukta okunmadan
+> kalıyor. Zararsız (görünümle birlikte atılıyor) ve bir sonraki
+> `drain_current` onu zaten kimliğinden eliyor — ama kapanmış saymayın.
 
 ## 5. ~~GUI'de imzalama akışı yok~~ — KAPANDI
 
@@ -200,14 +224,50 @@ Eldeki kanıt dışarıyı gösteriyor ama **atıf yapılmadı**:
 - Önceki turda 300 denemelik izole deney, ürün kodunun 0 leftover ürettiğini
   gösterdi.
 - Ad biçimi (gerçek dosya adı + `.tmp`, büyük harf) bir filtre sürücüsünün
-  (Defender / arama indeksleyici) silme penceresinde gölge kopya oluşturmasına
-  uyuyor.
+  silme penceresinde gölge kopya oluşturmasına uyuyor.
 
-**Yapılacak:** Süreç düzeyinde araçla (Sysinternals Process Monitor, ETW
-`FileIo` sağlayıcısı veya bir minifilter izi) dosyayı hangi sürecin yarattığını
-tespit et. Atıf yapılırsa `_classify_leftovers`'a gerekçeli bir istisna
-eklenebilir; yapılamazsa kapı olduğu gibi kalmalı — aralıklı kırmızı, sessiz
-yeşilden iyidir.
+### 2026-08-19 turunda eklenen kanıt (üçüncü gözlem + izole deneyler)
+
+Üçüncü gözlem: `M.JSON.tmp`, `hvt-test-ixnawydc` içinde, 6 turluk kapı
+koşusunun 4. turunda. `stat` `WinError 2` verdi — dosya listelendikten sonra
+`stat` edilmeden önce **kayboldu**. Aynı aile: gerçek dosya adı (`m.json`),
+büyük harf, `.tmp` eki.
+
+**Tarayıcı kimliği düzeltildi.** Bu notta önceki tahmin "Defender / arama
+indeksleyici" idi; **yanlış**. Ölçüldü:
+
+- `Get-MpComputerStatus` → `RealTimeProtectionEnabled: False`. Defender'ın
+  gerçek zamanlı koruması **kapalı**.
+- Çalışan koruma süreçleri: `avp` (×2), `avpui` — **Kaspersky**; ayrıca
+  `ksde`, `ksdeui` (Kaspersky EDR ajanı).
+- `fltmc filters` → `0x80070005 Erişim engellendi`. Minifilter listesi
+  **yükseltilmiş oturum olmadan alınamıyor.**
+
+**İzole deneyler — hiçbiri hayaleti üretmedi (toplam 7600 tur):**
+
+| Örüntü | Tur | Hayalet |
+|---|---|---|
+| Doğrudan yaz → sil | 3000 | 0 |
+| Atomik yaz (`hvtXXXXX.tmp` → `os.replace`) → tam oku → sil | 4000 | 0 |
+| Aynısı ama dosyayı **alt süreç** yazıyor | 600 | 0 |
+
+Üçü de yalnız standart kütüphane kullandı; yani ürün kodu olmadan da
+üretilebilir mi sorusunun cevabı **bu örüntülerde hayır**. Tetikleyici tek
+başına yazma biçimi ya da süreç oluşturma değil. Gerçek süitte kalan farklar:
+ağaç yapısı, `.exe`/imza örnekleri gibi tarayıcının ilgisini çeken içerik,
+`tests/support.py::_rmdir_all`'un ağacı gezerek silmesi ve 75 saniyelik yoğun
+G/Ç baskısı.
+
+**Sıklık güncellemesi:** bu turda 6 turda 1. Önceki tahmin (~25'te 1) fazla
+iyimser olabilir; tek ölçüm, kesin konuşmuyorum.
+
+**Yapılacak:** **Yükseltilmiş** bir oturumda süreç düzeyinde iz al —
+Sysinternals Process Monitor (`Operation: CreateFile`, `Path contains .tmp`)
+ya da ETW `FileIo`. `fltmc filters` çıktısıyla Kaspersky minifilter'ının
+(`klif`/`klam` ailesi) yüklü olduğunu da doğrula. Bu oturumda **yetki yoktu**,
+o yüzden atıf yapılamadı. Atıf yapılırsa `_classify_leftovers`'a gerekçeli bir
+istisna eklenebilir; yapılamazsa kapı olduğu gibi kalmalı — aralıklı kırmızı,
+sessiz yeşilden iyidir.
 
 ## 9. ~~Gelişmiş sekmelerinde iptal yok ve kapanışta thread terk ediliyor~~ — KAPANDI
 

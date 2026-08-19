@@ -134,6 +134,18 @@ the verdict won.
   migrated and scrubbed.
 
 ### Fixed
+- **A finished Hash / Verify / Report run could be discarded silently.** The
+  poll drained the worker's queue and then asked whether the thread was still
+  alive. The worker queues its terminal message and *then* returns, so a drain
+  that came up empty a moment earlier says nothing about whether one arrived
+  since — and in that window the run was treated as having nothing to report.
+  The status line read "Hazır.", the tab stayed empty, and because finishing
+  also drops the reference to the worker the message was gone for good. A hash
+  run in that window wrote its manifest and said nothing; a failed run was
+  reported as a normal finish, which is the worse half. The poll now looks
+  once more after finding the thread gone. Trust Check never had this: its
+  poll asks the controller whether the scan is still current rather than
+  asking the thread whether it is still alive.
 - **"Test Key" could report a verdict about a key you had already replaced.**
   Paste a key, press Test, notice it is wrong, paste the right one, press Test
   again: two lookups are in flight and whichever finishes last writes the
@@ -231,7 +243,7 @@ the verdict won.
   no PATH fallback, no `-ExecutionPolicy Bypass`.
 
 ### Tests
-- 37 → 586, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
+- 37 → 589, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
   `PYTHONIOENCODING` unset, and under explicit UTF-8.
 - `tools/verify_fix_coverage.py` reverts each fix in a scratch copy and requires
   the test that claims to cover it to fail, so a test that asserts nothing is

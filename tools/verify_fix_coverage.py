@@ -452,6 +452,19 @@ REVERTS = [
      "tests.test_gui_language_coverage.PrivacyNoticeTests"
      ".test_the_turkish_notice_is_the_one_the_pipeline_states"),
 
+    # --- the worker handover window --------------------------------------
+    ("a message queued as the thread exits is still read", "gui/app.py",
+     "        if self._dispatch(worker.drain(), on_done, on_error, on_progress):\n"
+     "            return\n"
+     "        self._finish(t(\"status.ready\"))\n",
+     "        self._finish(t(\"status.ready\"))\n",
+     "tests.test_gui_worker_race.WorkerHandoverTests"
+     ".test_a_result_queued_as_the_thread_exits_still_reaches_the_tab"),
+
+    # The failure and cancel halves of that window run through the same second
+    # drain, so a revert that hides one hides all three; one entry holds them.
+    # A distinct revert for each would be a revert invented to fill a row.
+
     # --- shared task runner ---------------------------------------------
     ("a superseded answer is refused on arrival", "core/task_runner.py",
      "        if task.cancelled:\n"
