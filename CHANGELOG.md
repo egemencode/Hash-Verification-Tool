@@ -134,6 +134,21 @@ the verdict won.
   migrated and scrubbed.
 
 ### Fixed
+- **"Test Key" could report a verdict about a key you had already replaced.**
+  Paste a key, press Test, notice it is wrong, paste the right one, press Test
+  again: two lookups are in flight and whichever finishes last writes the
+  screen. The older one usually does — it started earlier — so the screen
+  settles on "the key was rejected" about a key that is no longer in the
+  field. Settings ran its lookup on a bare thread with no notion of which
+  request was current, and handed the answer back with a cross-thread
+  `after()` that Tkinter refuses unless the main loop happens to be running
+  and that raises outright on a destroyed window. Background work now goes
+  through `core/task_runner.py`: identity, a cancel token, a bounded join, and
+  delivery through a queue drained on the thread that owns the widgets. A
+  superseded answer is refused on arrival, which is the only guarantee
+  available — cancelling cannot interrupt a request already in flight.
+  The Advanced tabs and Trust Check keep their own machinery for now; folding
+  all three into the runner is a separate piece of work.
 - **The drop-zone sentence lost its last word.** The label wrapped at a fixed
   820 pixels while its column was narrower than that, and the failure mode of a
   `wraplength` guess that is too generous is not "wraps late" — the text is
@@ -216,7 +231,7 @@ the verdict won.
   no PATH fallback, no `-ExecutionPolicy Bypass`.
 
 ### Tests
-- 37 → 575, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
+- 37 → 586, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
   `PYTHONIOENCODING` unset, and under explicit UTF-8.
 - `tools/verify_fix_coverage.py` reverts each fix in a scratch copy and requires
   the test that claims to cover it to fail, so a test that asserts nothing is

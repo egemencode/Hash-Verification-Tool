@@ -452,6 +452,68 @@ REVERTS = [
      "tests.test_gui_language_coverage.PrivacyNoticeTests"
      ".test_the_turkish_notice_is_the_one_the_pipeline_states"),
 
+    # --- shared task runner ---------------------------------------------
+    ("a superseded answer is refused on arrival", "core/task_runner.py",
+     "        if task.cancelled:\n"
+     "            self._queue.put(TaskResult(task, CANCELLED, result))\n"
+     "        else:\n"
+     "            self._queue.put(TaskResult(task, DONE, result))\n",
+     "        self._queue.put(TaskResult(task, DONE, result))\n",
+     "tests.test_task_runner.SupersessionTests"
+     ".test_a_superseded_answer_is_refused_even_when_it_arrives_first"),
+
+    ("only the live answer reaches the caller", "core/task_runner.py",
+     "            if self.is_current(result.task):\n"
+     "                latest = result\n",
+     "            latest = result\n",
+     "tests.test_task_runner.SupersessionTests"
+     ".test_drain_current_returns_only_the_live_answer"),
+
+    ("submitting supersedes the job in flight", "core/task_runner.py",
+     "            if self._current is not None:\n"
+     "                self._current.cancel()\n"
+     "            task = Task(",
+     "            task = Task(",
+     "tests.test_task_runner.SupersessionTests"
+     ".test_the_current_task_is_the_one_submitted_last"),
+
+    ("a closed runner refuses new work", "core/task_runner.py",
+     "            if self._shut_down:\n                return None\n",
+     "            if False:\n                return None\n",
+     "tests.test_task_runner.ShutdownTests.test_a_closed_runner_refuses_new_work"),
+
+    # The view refuses a stale answer twice over — by identity, then by
+    # outcome — and either check alone is enough, so reverting one leaves the
+    # other holding and proves nothing. The revert therefore removes the whole
+    # mechanism rather than half of it.
+    ("the view renders only the live, completed answer",
+     "gui/views/settings_view.py",
+     "        result = self._key_test.drain_current()\n"
+     "        if result is not None:\n"
+     "            if result.kind == DONE:\n",
+     "        results = self._key_test.drain()\n"
+     "        result = results[-1] if results else None\n"
+     "        if result is not None:\n"
+     "            if result.kind in (DONE, CANCELLED):\n",
+     "tests.test_gui_key_test_task.KeyTestTaskTests"
+     ".test_a_stale_verdict_cannot_overwrite_the_current_one"),
+
+    ("the key test is torn down with its view",
+     "gui/views/settings_view.py",
+     "        self.shutdown()\n        super().destroy()\n",
+     "        super().destroy()\n",
+     "tests.test_gui_key_test_task.KeyTestTaskTests"
+     ".test_switching_language_stops_the_lookup_it_throws_away"),
+
+    ("the answer is not delivered from the worker thread",
+     "gui/views/settings_view.py",
+     "            return client.lookup_hash(empty_sha256)\n",
+     "            result = client.lookup_hash(empty_sha256)\n"
+     "            self.after(0, lambda: self._on_test_done(result))\n"
+     "            return result\n",
+     "tests.test_gui_key_test_task.KeyTestTaskTests"
+     ".test_the_lookup_never_calls_into_tk_from_its_own_thread"),
+
     ("single read for a single-file manifest", "main.py",
      "                args.file, algorithm=algo, ensure_stable=bool(args.output)\n",
      "                args.file, algorithm=algo, ensure_stable=False\n",

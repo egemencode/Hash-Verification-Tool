@@ -8,10 +8,10 @@ discoverable surface so users do not have to know about menus.
 from __future__ import annotations
 
 import tkinter as tk
-import threading
 from tkinter import messagebox, ttk
-from typing import Callable
+from typing import Callable, Optional
 
+from core.task_runner import CANCELLED, DONE, ERROR, TaskRunner
 from core.vt_client import VirusTotalClient, VTStatus
 from gui import theme
 from gui.i18n import SUPPORTED_LANGUAGES, t
@@ -32,6 +32,10 @@ class SettingsView(ttk.Frame):
         self._live_settings = settings
         self._settings = settings.copy_for_edit()
         self._on_settings_changed = on_settings_changed
+        # "Test Key" used to open a raw thread and call back into Tk from it.
+        # See core/task_runner.py for what that cost.
+        self._key_test = TaskRunner(label="key-test")
+        self._poll_after_id: Optional[str] = None
         self._build()
 
     # ------------------------------------------------------------------
@@ -203,16 +207,76 @@ class SettingsView(ttk.Frame):
             return
         self.test_status_var.set(t("settings.test.running"))
 
-        def worker() -> None:
+        def worker(task) -> object:
             client = VirusTotalClient(api_key=key, timeout=10.0)
             # Use the canonical empty-string SHA-256 as a known-good hash.
             empty_sha256 = (
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
             )
-            result = client.lookup_hash(empty_sha256)
-            self.after(0, lambda: self._on_test_done(result))
+            return client.lookup_hash(empty_sha256)
 
-        threading.Thread(target=worker, daemon=True).start()
+        # Pressing Test again supersedes the lookup in flight. The one being
+        # replaced cannot be interrupted mid-request, but its answer is
+        # refused on arrival — otherwise the slower of the two writes the
+        # screen and the user reads a verdict about a key they have already
+        # corrected.
+        if self._key_test.submit(worker) is not None:
+            self._schedule_poll()
+
+    # ------------------------------------------------------------------
+    def _schedule_poll(self) -> None:
+        """One scheduler only: never stack a second polling chain."""
+        if self._poll_after_id is None:
+            self._poll_after_id = self.after(120, self._on_poll_tick)
+
+    def _on_poll_tick(self) -> None:
+        self._poll_after_id = None
+        self._poll_key_test()
+
+    def _poll_key_test(self) -> None:
+        """
+        Deliver the answer on the UI thread, at a moment we chose.
+
+        The worker no longer calls ``after()`` itself. Tkinter refuses that
+        from another thread unless the main loop happens to be running, and on
+        a window that has already been destroyed it raises inside the worker,
+        where the exception is printed and then ignored by everything.
+        """
+        result = self._key_test.drain_current()
+        if result is not None:
+            if result.kind == DONE:
+                self._on_test_done(result.payload)
+            elif result.kind == ERROR:
+                self.test_status_var.set(
+                    t("settings.test.error", error=result.payload)
+                )
+            elif result.kind == CANCELLED:
+                # Superseded or torn down: the screen belongs to whatever
+                # replaced this, so say nothing rather than overwrite it.
+                pass
+        if self._key_test.busy:
+            self._schedule_poll()
+
+    def _cancel_scheduled_poll(self) -> None:
+        if self._poll_after_id is not None:
+            try:
+                self.after_cancel(self._poll_after_id)
+            except tk.TclError:  # pragma: no cover - already torn down
+                pass
+            self._poll_after_id = None
+
+    def shutdown(self) -> None:
+        """Stop the key test and its scheduler; safe to call more than once."""
+        self._cancel_scheduled_poll()
+        self._key_test.shutdown(timeout=5.0)
+
+    def destroy(self) -> None:  # type: ignore[override]
+        # Self-contained on purpose. This view is destroyed two ways — the
+        # window closing and the notebook being rebuilt for a language switch
+        # — and a teardown that has to be remembered at each call site is one
+        # that eventually is not.
+        self.shutdown()
+        super().destroy()
 
     def _on_test_done(self, result) -> None:
         status_messages = {

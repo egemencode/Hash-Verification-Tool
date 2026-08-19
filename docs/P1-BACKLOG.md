@@ -60,14 +60,44 @@ Testler: `tests/test_gui_cancel_button.py`, ikisi de
 > **Kalan kısım — Gelişmiş sekmeleri (madde 9).** Hash / Verify / Report
 > sekmelerinde hâlâ iptal yok.
 
-## 4. Ayarlar'daki "Anahtarı Test Et" için ortak görev yöneticisi yok
+## 4. ~~Ayarlar'daki "Anahtarı Test Et" için ortak görev yöneticisi yok~~ — YARISI KAPANDI
 
-`SettingsView._on_test` kendi thread'ini açıyor; `ScanController`'dan bağımsız.
-Bu thread iptal edilemiyor, uygulama kapanışında beklenmiyor ve `after()`
-callback'i `_poll_after_id` disiplinine tabi değil.
+### ✔ Koşucu yazıldı, Ayarlar ona bağlandı (`core/task_runner.py`)
 
-**Yapılacak:** Uygulama geneli tek görev yöneticisi (session kimliği, iptal,
-bounded join, tek scheduler) ve Ayarlar test akışının ona bağlanması.
+`SettingsView._on_test` kendi thread'ini açıyor, thread iptal edilemiyor,
+kapanışta beklenmiyor ve cevabı **worker thread'inden** `self.after(0, …)` ile
+geri veriyordu.
+
+Bunun bedeli düzensizlik değil, **yanlış cevap**: anahtarı yapıştır → Test →
+yanlış olduğunu gör → doğrusunu yapıştır → Test. İki sorgu havada; sonra biten
+ekranı yazıyor. Kullanıcı, çoktan düzelttiği anahtar için *"Anahtar reddedildi"*
+okuyor. `ScanSession`'ın var olma sebebiyle aynı kusur — geç gelen cevabın
+yanlış özneye iliştirilmesi — ve Ayarlar'da erişilebilirdi çünkü orada
+"güncel" diye bir kavram yoktu.
+
+Koşucu dört sorumluluğu tek yerde topluyor: kimlik, işbirlikçi iptal, sınırlı
+join ve **kuyrukla teslimat**. Teslimat kuyrukla, çünkü Tkinter başka bir
+thread'den gelen `after()`'ı ancak ana döngü koşuyorsa kabul ediyor; yok
+edilmiş pencerede ise worker thread'inde patlıyor ve orada istisna basılıp
+yutuluyor. Üstünlük **kimlikle** belirleniyor, varışla değil: iptal bloke bir
+isteği kesemez, dolayısıyla "varışta reddedilir" elde edilebilecek tek garanti.
+
+Testler: `tests/test_task_runner.py` (8), `tests/test_gui_key_test_task.py` (3).
+
+### ✖ Kalan: Gelişmiş sekmeleri ve Trust Check hâlâ kendi mekanizmalarında
+
+`gui/app.py`'deki `_Worker` ve `core/scan_controller.py` bu turda olduğu gibi
+duruyor. Üçünü aynı commit'te değiştirmek, bir şeyi kanıtlarken üç şeyi kırmak
+olurdu.
+
+**Yapılacak (§6B):** `_Worker`'ı koşucuya taşı. `ScanController` tarama durum
+makinesini korusun ama thread/iptal kısmını koşucuya devretsin — o dosyanın
+kendi test takımı var, önce onun neyi tuttuğunu doğrula.
+
+> Küçük bir kalıntı, bilerek: görünüm yalnız *güncel görev koşarken* yokluyor.
+> Bayat bir cevap poll durduktan sonra gelirse kuyrukta okunmadan kalıyor.
+> Zararsız (görünümle birlikte atılıyor) ve bir sonraki `drain_current` onu
+> zaten kimliğinden eliyor — ama kapanmış saymayın.
 
 ## 5. ~~GUI'de imzalama akışı yok~~ — KAPANDI
 
