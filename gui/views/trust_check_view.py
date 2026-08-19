@@ -20,7 +20,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable, Optional
 
 from core.baseline import (
-    DECISION_PROMPTS,
+    decision_prompt,
     BaselineDecision,
     evaluate_baseline_request,
 )
@@ -1113,12 +1113,12 @@ class TrustCheckView(ttk.Frame):
         )
         if decision is BaselineDecision.BLOCKED:
             messagebox.showerror(
-                t("trust.remember.blocked_title"), DECISION_PROMPTS[decision]
+                t("trust.remember.blocked_title"), decision_prompt(decision)
             )
             return
         if decision is BaselineDecision.ALREADY_CURRENT:
             messagebox.showinfo(
-                t("trust.remember.current_title"), DECISION_PROMPTS[decision]
+                t("trust.remember.current_title"), decision_prompt(decision)
             )
             return
         if decision in (BaselineDecision.CONFIRM_REPLACE, BaselineDecision.CONFIRM_RISKY):
@@ -1127,7 +1127,7 @@ class TrustCheckView(ttk.Frame):
                 if decision is BaselineDecision.CONFIRM_REPLACE
                 else t("trust.remember.risky_title")
             )
-            if not messagebox.askyesno(title, DECISION_PROMPTS[decision]):
+            if not messagebox.askyesno(title, decision_prompt(decision)):
                 return
 
         # Re-verify the file right before writing: the bytes we are about to

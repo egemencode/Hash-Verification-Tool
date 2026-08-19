@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from enum import Enum
 
+from core.i18n import t
 from core.local_verify import LocalVerifyStatus
 from core.risk_engine import RiskLevel
 
@@ -66,25 +67,17 @@ def evaluate_baseline_request(
     return BaselineDecision.SAVE
 
 
-# User-facing copy, kept next to the policy so the two cannot drift apart.
-DECISION_PROMPTS: dict[BaselineDecision, str] = {
-    BaselineDecision.SAVE: "Bu sürümü hatırla",
-    BaselineDecision.ALREADY_CURRENT: (
-        "Bu dosya zaten kayıtlı sürümle aynı; yapılacak bir şey yok."
-    ),
-    BaselineDecision.CONFIRM_REPLACE: (
-        "Bu dosya daha önce kaydettiğiniz sürümden FARKLI.\n\n"
-        "Yeni sürümü temel sürüm yaparsanız, önceki sürümle karşılaştırma "
-        "yapamazsınız. Değişikliği beklediğinizden emin misiniz?"
-    ),
-    BaselineDecision.CONFIRM_RISKY: (
-        "Bu taramada dikkat edilmesi gereken işaretler var.\n\n"
-        "Yine de bu sürümü temel sürüm olarak kaydetmek istiyor musunuz?"
-    ),
-    BaselineDecision.BLOCKED: (
-        "Bu dosya temel sürüm olarak kaydedilemez: tarama bir güvenlik "
-        "tespiti, yüksek risk ya da bozuk imza bildiriyor. Bir motorun "
-        "işaretlediği dosyayı 'bilinen iyi sürüm' yapmak, tespiti kalıcı "
-        "olarak görünmez kılar. Önce dosyanın kaynağını doğrulayın."
-    ),
-}
+def decision_prompt(decision: BaselineDecision) -> str:
+    """
+    What to tell the user about *decision*, in the active language.
+
+    A function rather than the dictionary of sentences this used to be: a
+    table built at import time freezes its wording in whichever language
+    happened to be active when Python first read the file, which is not the
+    one the user picks afterwards.
+
+    The key comes from the decision's own value, so the policy and its copy
+    still cannot drift apart — adding a decision without adding its sentence
+    fails the translation-table test rather than quietly showing a key.
+    """
+    return t(f"baseline.{decision.value}")

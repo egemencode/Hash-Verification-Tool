@@ -17,6 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
+from core.i18n import t
 from core.atomic_io import corrupt_reason, quarantine_corrupt_file, write_json_atomic
 
 
@@ -70,7 +71,15 @@ class LocalVerifyResult:
     record: Optional[LocalRecord] = None
     previous_hash: Optional[str] = None
     current_hash: Optional[str] = None
-    message: str = ""
+    # The key of the sentence this outcome carries, not the sentence. Empty
+    # when there is nothing to say. Rendered on access by ``message`` — see
+    # PolicyNotice for why this tier resolves at the point of use.
+    message_key: str = ""
+
+    @property
+    def message(self) -> str:
+        """This outcome in the active language, or "" when it says nothing."""
+        return t(self.message_key) if self.message_key else ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -79,6 +88,7 @@ class LocalVerifyResult:
             "previous_hash": self.previous_hash,
             "current_hash": self.current_hash,
             "message": self.message,
+            "message_key": self.message_key,
         }
 
 
@@ -206,7 +216,7 @@ class LocalVerifyStore:
             return LocalVerifyResult(
                 status=LocalVerifyStatus.NOT_TRACKED,
                 current_hash=digest,
-                message="Bu dosya daha önce kaydedilmemiş.",
+                message_key="local.not_tracked",
             )
         if existing.sha256.lower() == digest:
             return LocalVerifyResult(
@@ -214,14 +224,14 @@ class LocalVerifyStore:
                 record=existing,
                 previous_hash=existing.sha256,
                 current_hash=digest,
-                message="Dosya kayıtlı sürümüyle aynı.",
+                message_key="local.same",
             )
         return LocalVerifyResult(
             status=LocalVerifyStatus.CHANGED,
             record=existing,
             previous_hash=existing.sha256,
             current_hash=digest,
-            message="Dosya kayıtlı sürümünden farklı.",
+            message_key="local.changed",
         )
 
     def remember(
@@ -271,10 +281,8 @@ class LocalVerifyStore:
             status=LocalVerifyStatus.NEW,
             record=record,
             current_hash=digest,
-            message=(
-                "Yeni dosya kaydı oluşturuldu."
-                if previous is None
-                else "Kayıt güncellendi."
+            message_key=(
+                "local.recorded" if previous is None else "local.updated"
             ),
         )
 

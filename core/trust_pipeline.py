@@ -22,6 +22,7 @@ from core.hash_utils import (
 from core.local_verify import LocalVerifyResult, LocalVerifyStore
 from core.risk_engine import RiskAssessment, assess
 from core.signature_checker import SignatureResult, check_signature
+from core.i18n import t
 from core.smart_summary import SmartSummary, build_summary
 from core.trust_report import TrustReport
 from core.vt_client import VirusTotalClient, VTLookupResult
@@ -56,6 +57,22 @@ PRIVACY_NOTICE = (
     "Dosyanız yüklenmez. Yalnızca dosyanın SHA-256 özeti VirusTotal'a "
     "gönderilir; bu istek IP adresiniz ve API hesabınızla ilişkilendirilebilir."
 )
+
+
+def file_changed_error(kind: str, path: str) -> "FileChangedDuringScanError":
+    """
+    Build the "it moved while we were reading it" error, in the user's language.
+
+    A finding, not a relayed diagnostic: nothing reported this to us, we
+    detected it — and it is the most security-relevant thing this pipeline can
+    say, so it is on the translated side of the line. Rendered here rather than
+    carried as a key because an exception has to be readable wherever it lands,
+    including a log file nobody will render.
+
+    *kind* is ``unreadable``, ``metadata`` or ``content`` — which of the three
+    checks noticed, in the order they run.
+    """
+    return FileChangedDuringScanError(t(f"pipeline.changed.{kind}", path=path))
 
 
 @dataclass
@@ -115,10 +132,10 @@ def run_trust_check(
         if on_progress is not None:
             on_progress(step)
 
-    report("Dosya bilgileri okunuyor…")
+    report(t("pipeline.step.file_info"))
     file_info = collect_file_info(file_path)
 
-    report("Hash değerleri hesaplanıyor…")
+    report(t("pipeline.step.hashing"))
     # One pass over the file for MD5 / SHA-1 / SHA-256 so every digest comes
     # from the exact same bytes. The snapshot is read with fstat() from that
     # same descriptor — taking it with a separate stat() afterwards would
@@ -133,7 +150,7 @@ def run_trust_check(
 
     # --- VirusTotal --------------------------------------------------
     if query_virustotal:
-        report("VirusTotal sorgulanıyor…")
+        report(t("pipeline.step.virustotal"))
         sha256 = hashes.get("sha256") or ""
         result.vt = vt_client.lookup_hash(sha256)
     else:
@@ -141,14 +158,14 @@ def run_trust_check(
 
     # --- Digital signature ------------------------------------------
     if check_signature_flag:
-        report("Dijital imza kontrol ediliyor…")
+        report(t("pipeline.step.signature"))
         result.signature = check_signature(file_info.path)
     else:
         result.signature = None
 
     # --- Local fingerprint compare ----------------------------------
     if local_store is not None and hashes.get("sha256"):
-        report("Yerel kayıt karşılaştırılıyor…")
+        report(t("pipeline.step.local"))
         result.local = local_store.compare(file_info.path, hashes["sha256"])
     else:
         result.local = None
@@ -161,28 +178,22 @@ def run_trust_check(
     # active attacker can rewrite content and restore both the size and the
     # mtime. The authoritative check is therefore content-based — we re-read
     # the file and recompute SHA-256, which no metadata forgery can defeat.
-    report("Dosya bütünlüğü yeniden doğrulanıyor…")
+    report(t("pipeline.step.recheck"))
     try:
         snapshot_final = snapshot_file(file_info.path)
     except HashError as exc:
-        raise FileChangedDuringScanError(
-            f"Dosya tarama sırasında erişilemez oldu: {file_info.path}"
-        ) from exc
+        raise file_changed_error("unreadable", file_info.path) from exc
     if not snapshot_after_hash.is_same(snapshot_final):
-        raise FileChangedDuringScanError(
-            f"Dosya tarama sırasında değişti: {file_info.path}"
-        )
+        raise file_changed_error("metadata", file_info.path)
 
     recheck, _snap = compute_file_hashes_with_snapshot(
         file_info.path, ("sha256",), ensure_stable=True
     )
     if recheck.get("sha256") != hashes.get("sha256"):
-        raise FileChangedDuringScanError(
-            f"Dosya içeriği tarama sırasında değişti: {file_info.path}"
-        )
+        raise file_changed_error("content", file_info.path)
 
     # --- Risk + summary ---------------------------------------------
-    report("Risk değerlendiriliyor…")
+    report(t("pipeline.step.risk"))
     result.assessment = assess(
         vt_result=result.vt,
         signature_result=result.signature,
@@ -195,5 +206,5 @@ def run_trust_check(
         local=result.local,
     )
 
-    report("Tamamlandı.")
+    report(t("pipeline.step.done"))
     return result

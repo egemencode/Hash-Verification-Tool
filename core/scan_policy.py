@@ -16,12 +16,13 @@ leave a half-written manifest behind.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional, Sequence
 
 from core.hash_utils import INSECURE_ALGORITHMS, SUPPORTED_ALGORITHMS, is_collision_prone
+from core.i18n import t
 
 
 class PolicyLevel(str, Enum):
@@ -34,11 +35,29 @@ class PolicyLevel(str, Enum):
 
 @dataclass(frozen=True)
 class PolicyNotice:
-    """A single decision, with the text a user should actually read."""
+    """
+    A single decision, with the text a user should actually read.
+
+    The wording is held as a key plus its values rather than as a sentence,
+    because both front ends show these and only one of them knows a language
+    was chosen. ``message`` resolves it on access: these notices are consumed
+    in the same breath they are produced — printed to stderr, or put in a
+    dialog — so there is nothing to gain from making every caller carry a
+    renderer, and ``main.py`` has none to carry.
+
+    (The verdict is handled the other way round, in core/phrases.py: a result
+    outlives the moment and is exported to documents whose language is the
+    caller's decision, so it stays unrendered until someone asks.)
+    """
 
     level: PolicyLevel
     code: str
-    message: str
+    values: dict = field(default_factory=dict)
+
+    @property
+    def message(self) -> str:
+        """This notice in the active language."""
+        return t(f"policy.{self.code}", **self.values)
 
     @property
     def blocking(self) -> bool:
@@ -129,9 +148,7 @@ def evaluate_hash_request(
         notices.append(PolicyNotice(
             PolicyLevel.BLOCK,
             "output_overwrites_input",
-            f"Kaydetme hedefi özetlenecek dosyanın kendisi ({target}). "
-            "Manifest yazılsaydı özetlenen dosya yok olurdu. Farklı bir hedef "
-            "seçin.",
+            {"target": target},
         ))
 
     # --- the signing key must not travel with what it signs ------------
@@ -140,32 +157,24 @@ def evaluate_hash_request(
             notices.append(PolicyNotice(
                 PolicyLevel.BLOCK,
                 "sign_key_inside_folder",
-                f"İmzalama anahtarı taranan klasörün içinde ({sign_key}). "
-                "Klasörü alan herkes anahtarı da alır ve sizin adınıza "
-                "manifest imzalayabilir.",
+                {"sign_key": sign_key},
             ))
         elif writes_reference and _resolved(sign_key).parent == _resolved(output).parent:
             notices.append(PolicyNotice(
                 PolicyLevel.BLOCK,
                 "sign_key_beside_manifest",
-                f"İmzalama anahtarı manifestle aynı klasörde ({sign_key}). "
-                "Özel anahtar, imzaladığı belgeyle birlikte dağıtılmamalı.",
+                {"sign_key": sign_key},
             ))
 
     # --- collision-prone algorithms ------------------------------------
     if writes_reference and is_collision_prone(algorithm):
-        algo = str(algorithm).upper()
-        explanation = (
-            f"{algo} ile bütünlük manifesti üretiliyor. Bu algoritmada aynı "
-            "özeti veren farklı bir dosya üretmek pratiktir; sonradan eşleşen "
-            "bir özet, dosyanın değiştirilmediğini KANITLAMAZ. Yalnız eski "
-            "checksum listeleriyle uyum için kullanın. "
-            f"Güvenli seçenekler: {', '.join(SAFE_ALGORITHMS)}."
-        )
         notices.append(PolicyNotice(
             PolicyLevel.WARN if allow_insecure_algorithm else PolicyLevel.CONFIRM,
             "insecure_algorithm",
-            explanation,
+            {
+                "algo": str(algorithm).upper(),
+                "safe": ", ".join(SAFE_ALGORITHMS),
+            },
         ))
 
     # --- writing into the tree being scanned ---------------------------
@@ -173,9 +182,7 @@ def evaluate_hash_request(
         notices.append(PolicyNotice(
             PolicyLevel.WARN,
             "manifest_inside_folder",
-            f"Manifest taranan klasörün içine yazılıyor ({output}); kendi "
-            "envanterinden hariç tutuldu. Doğrularken aynı yolu manifest "
-            "olarak verin, aksi hâlde 'yeni dosya' görünür.",
+            {"output": output},
         ))
 
     notices.sort(key=lambda n: 0 if n.blocking else 1)

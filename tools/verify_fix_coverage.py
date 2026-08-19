@@ -433,24 +433,75 @@ REVERTS = [
      "tests.test_gui_language_coverage.LanguageSwitchTests"
      ".test_no_label_on_the_main_screen_is_cut_off"),
 
-    ("both languages define the same keys", "gui/i18n.py",
+    ("both languages define the same keys", "core/i18n.py",
      '        "btn.copy": "Kopyala",',
      '        "btn.copy.tr_only": "Kopyala",',
      "tests.test_gui_language_coverage.TranslationTableTests"
      ".test_both_languages_define_the_same_keys"),
 
-    ("a translation keeps the values it was given", "gui/i18n.py",
+    ("a translation keeps the values it was given", "core/i18n.py",
      '        "trust.invalid.body": "Bu yol bir dosyaya işaret etmiyor:\\n{path}",',
      '        "trust.invalid.body": "Bu yol bir dosyaya işaret etmiyor.",',
      "tests.test_gui_language_coverage.TranslationTableTests"
      ".test_a_translation_keeps_every_placeholder_it_was_given"),
 
     ("the privacy notice cannot drift from the pipeline",
-     "gui/i18n.py",
+     "core/i18n.py",
      '            "Dosyanız yüklenmez. Yalnızca dosyanın SHA-256 özeti VirusTotal\'a "',
      '            "Dosyanız yüklenmez. Yalnızca dosyanın SHA-256 ozeti VirusTotala "',
      "tests.test_gui_language_coverage.PrivacyNoticeTests"
      ".test_the_turkish_notice_is_the_one_the_pipeline_states"),
+
+    # --- what the application chooses to say ------------------------------
+    ("policy notices are looked up", "core/scan_policy.py",
+     '        return t(f"policy.{self.code}", **self.values)\n',
+     '        return f"policy.{self.code}"\n',
+     "tests.test_notice_language.PolicyNoticeLanguageTests"
+     ".test_a_refusal_reads_in_the_chosen_language"),
+
+    ("a notice keeps the values it names", "core/scan_policy.py",
+     '            {\n'
+     '                "algo": str(algorithm).upper(),\n'
+     '                "safe": ", ".join(SAFE_ALGORITHMS),\n'
+     '            },\n',
+     '            {},\n',
+     "tests.test_notice_language.PolicyNoticeLanguageTests"
+     ".test_an_insecure_algorithm_warning_keeps_its_values"),
+
+    ("baseline prompts are looked up", "core/baseline.py",
+     '    return t(f"baseline.{decision.value}")\n',
+     '    return f"baseline.{decision.value}"\n',
+     "tests.test_notice_language.BaselinePromptLanguageTests"
+     ".test_every_prompt_reads_in_the_chosen_language"),
+
+    ("local-record outcomes are looked up", "core/local_verify.py",
+     '        return t(self.message_key) if self.message_key else ""\n',
+     '        return self.message_key\n',
+     "tests.test_notice_language.LocalRecordLanguageTests"
+     ".test_every_outcome_reads_in_the_chosen_language"),
+
+    ("progress steps are looked up", "core/trust_pipeline.py",
+     '    report(t("pipeline.step.hashing"))\n',
+     '    report("Hash değerleri hesaplanıyor…")\n',
+     "tests.test_notice_language.ScanProgressLanguageTests"
+     ".test_every_progress_step_reads_in_the_chosen_language"),
+
+    ("the file-changed finding is looked up", "core/trust_pipeline.py",
+     '    return FileChangedDuringScanError(t(f"pipeline.changed.{kind}", path=path))\n',
+     '    return FileChangedDuringScanError(f"Dosya değişti: {path}")\n',
+     "tests.test_notice_language.FileChangedLanguageTests"
+     ".test_it_reads_in_the_chosen_language_and_names_the_file"),
+
+    # Renaming the key in one table would prove nothing: t() falls back to
+    # English before it falls back to the key, so the Turkish side can be
+    # broken and the sentence still arrives. This renames the *code*, which
+    # misses in both tables — and it is the mistake that actually happens: a
+    # notice added or renamed without its sentence following it.
+    ("a notice without a sentence is caught", "core/scan_policy.py",
+     '            "manifest_inside_folder",\n',
+     '            "manifest_inside_folder_v2",\n',
+     "tests.test_notice_language.PolicyNoticeLanguageTests"
+     ".test_every_policy_code_has_a_sentence"),
 
     ("the whole verdict is visible, not just what fits",
      "gui/views/trust_check_view.py",

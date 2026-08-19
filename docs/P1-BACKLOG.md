@@ -314,7 +314,7 @@ Windows'un koyu modunu izlemiyor).
 **Yapılacak:** İkinci palet + Windows tema algılama + `_apply_style` içinde
 uygulama. Kontrast testi ikinci paleti de yürüyecek şekilde genişletilmeli.
 
-## 11. ~~Sonuç metni çekirdekten geliyor ve hâlâ tek dilli~~ — HÜKÜM KAPANDI
+## 11. ~~Sonuç metni çekirdekten geliyor ve hâlâ tek dilli~~ — KAPANDI
 
 Üç varsayılan ekranın **kendi yazdığı** her dize `t()` üzerinden geçiyor
 (bkz. `tests/test_gui_language_coverage.py`). Ama ekranın asıl cümlesini —
@@ -400,17 +400,63 @@ verdi"yi söyler, alt dize eşleşmesi yalnızca "metinde şu kelime geçti"yi.
 `test_vt_freshness` bunun en belirgin örneğiydi: üç Türkçe kelimeden herhangi
 biri *herhangi bir* maddede geçse geçiyordu.
 
-### ✖ Kalan (§7B): diyalog ve ayrıntı metni
+### ✔ §7B — uygulamanın söylemeyi seçtiği her şey
 
-Hüküm çevrildi; şu üç modül hâlâ tek dilli ve **ekranda görünüyor**:
+**Önce bir ölçüm düzeltmesi.** §7B "üç modül, ~22 dize" diye tahmin edilmişti.
+Ölçülünce `core/` ve `utils/` altında **136** Türkçe dize çıktı (docstring
+hariç), 15 modülde. Tahmin, `core/scan_policy.py`'nin `gui/app.py` tarafından
+gösterilen uyarılarını da atlamıştı.
 
-| Modül | Nerede görünüyor |
+**Çizilen sınır — ve bu bir karar, mazeret değil:**
+
+> Uygulamanın **seçtiği** metin çevrilir. İşletim sisteminin, dosya sisteminin
+> ya da uzak bir API'nin **bildirdiğini aktaran** metin çevrilmez.
+
+Aktarılan tanı metni yeniden yazılırsa onu yararlı kılan ayrıntıyı kaybeder
+(`PermissionError`'ı adlandıran bir satırı "dosya okunamadı"ya indirgemek gibi),
+üstelik bir kısmı `key_files.py` / `manifest_signing.py` gibi imzalama
+yollarında ve salt ifade için oraya dokunmak kötü bir takas.
+
+Çevrilenler:
+
+| Modül | Ne |
 |---|---|
-| `core/baseline.py` | "Parmak İzini Kaydet" onay/red diyalogları (5 metin) |
-| `core/local_verify.py` | Yerel Kayıt sekmesindeki *Açıklama* satırı, kaydetme sonucu |
-| `core/file_info.py` | Tarama başarısız diyalogundaki hata metni |
+| `core/scan_policy.py` | Hash isteğini reddeden/niteleyen 5 politika uyarısı |
+| `core/baseline.py` | Temel sürüm soruları (`decision_prompt()`) |
+| `core/local_verify.py` | Kaydın dosya hakkında söyledikleri (sonuç mesajları) |
+| `core/trust_pipeline.py` | 8 ilerleme adımı + "dosya tarama sırasında değişti" |
 
-Bunlar özetin parçası değil (özet kendi cümlelerini durum enum'undan kuruyor),
-o yüzden hüküm sınırında durup ayrı madde yapıldı. Aynı `Phrase` biçimi
-uygulanabilir; `LocalVerifyResult.message` düz `str` olduğu için orada tip
-değişikliği gerekiyor.
+**Tablo `gui/i18n.py`'den `core/i18n.py`'ye taşındı.** Sebebi mimarî:
+`scan_policy` iki ön yüzün de uyduğu kuralları tutuyor ve bir çekirdek
+modülünün `t()` için `gui`'yi import etmesi, o dosyanın var olma sebebini
+tersine çevirirdi. `gui/i18n.py` yeniden dışa aktarım olarak duruyor, hiçbir
+görünüm importu değişmedi. **CLI'ın çıktısı bit bit aynı:** komut satırı hiç
+`set_language` çağırmıyor, varsayılan Türkçede kalıyor.
+
+**Bu katman kendini render ediyor** — hüküm gibi çevrilmemiş `Phrase`
+döndürmüyor. Sebebi: üretildikleri anda tüketiliyorlar ve `main.py` bunları
+stderr'e basıyor, elinde render edecek bir sunum katmanı yok.
+`PolicyNotice.message` düz `str` olarak kaldığı için CLI ve Hash sekmesinde
+**tek satır değişmedi**. Anahtar, uyarının kendi `code`'undan türüyor; ikisi
+birbirinden ayrı yeniden adlandırılamıyor.
+
+Testler: `tests/test_notice_language.py` (7).
+
+> **Neden kaynakta Türkçe harf arayan bir sınır testi yok:** bu dalın kuralı
+> "davranış testi yaz, kaynak içinde kelime arayan test yazma".
+> Sınırı `test_every_policy_code_has_a_sentence` tutuyor — politika beş
+> yapılandırmanın hepsinden geçiriliyor ve her uyarının anahtarı değil
+> **cümlesi** dönmek zorunda. Çevirisiz eklenen bir uyarı sessizce
+> `policy.something_new` göstermek yerine testi düşürüyor.
+
+### ✖ Bilerek çevrilmeyen (aktarılan tanı metni)
+
+`core/key_files.py` (25), `core/manifest_manager.py` (14), `utils/settings.py`
+(13), `core/history_manager.py` (9), `core/manifest_signing.py` (9),
+`core/signature_checker.py` (9), `core/vt_client.py` (9), `core/secret_store.py`
+(4), `core/file_info.py` (3), `core/verifier.py` (2), `core/atomic_io.py` (1)
+ve `core/local_verify.py`'nin depo hataları.
+
+Bunlar `str(exc)` olarak ekrana gelebiliyor. Çevrilmeleri isteniyorsa her özel
+istisnanın bir `Phrase` taşıması ve GUI'nin onu render etmesi gerekir — ayrı
+bir tur, ve imzalama yollarına dokunduğu için ayrı bir risk.

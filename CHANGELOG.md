@@ -116,10 +116,31 @@ the verdict won.
   carries both spellings — the words a person reads and the key a program can
   match on, because a translated sentence is not a stable identifier.
 
-  Still Turkish in both languages, and recorded rather than half-done: the
-  baseline prompts (`core/baseline.py`), the local-record messages
-  (`core/local_verify.py`) and the file-access errors (`core/file_info.py`).
-  Those are dialogue and detail text rather than the verdict.
+- **Everything the application chooses to say is now translated.** The policy
+  notices that refuse or qualify a hash request, the prompts asked before a
+  fingerprint replaces the stored one, what the local record says about a
+  file, the progress line during a scan, and the "this file changed while it
+  was being scanned" finding.
+
+  The boundary is deliberate and stated: text the application *chose* is
+  translated; text that relays what the operating system, the filesystem or a
+  remote API reported is not. A diagnostic naming a `PermissionError` loses
+  what makes it useful if it is rephrased, and several are raised from the
+  signing and key paths where editing for wording alone is a poor trade.
+
+  These render themselves at the point of use rather than returning an
+  unrendered phrase like the verdict does, because they are consumed in the
+  same breath they are produced and `main.py` prints them to stderr with no
+  presenter to hand them to. `PolicyNotice.message` stayed the plain string
+  every existing caller already read, so the CLI and the Hash tab needed no
+  changes at all.
+
+  The translation table moved from `gui/i18n.py` to `core/i18n.py` for this:
+  `core/scan_policy.py` holds the rules both front ends obey, and a core
+  module importing `gui` to reach `t()` would invert the dependency that file
+  exists to avoid. `gui/i18n.py` re-exports, so every view import is unchanged,
+  and the CLI never selects a language — its output is byte-identical to
+  before.
 
 ### Changed
 - **The window is built on `clam` instead of `vista`.** `vista` is what Tk
@@ -271,7 +292,7 @@ the verdict won.
   no PATH fallback, no `-ExecutionPolicy Bypass`.
 
 ### Tests
-- 37 → 596, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
+- 37 → 603, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
   `PYTHONIOENCODING` unset, and under explicit UTF-8.
 - `tools/verify_fix_coverage.py` reverts each fix in a scratch copy and requires
   the test that claims to cover it to fail, so a test that asserts nothing is
