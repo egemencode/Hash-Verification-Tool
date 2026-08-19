@@ -298,6 +298,49 @@ REVERTS = [
      "tests.test_gui_signing.HashTabSigningTests"
      ".test_a_signing_key_is_refused_for_a_single_file"),
 
+    # A palette module nothing imports fixes nothing, and the failing colours
+    # were literals in the views, not in any shared place.
+    ("the risk palette comes from the theme", "gui/views/history_view.py",
+     "_LEVEL_COLOR = {level.value: theme.risk_colour(level.value) for level in RiskLevel}\n",
+     "_LEVEL_COLOR = {level.value: \"#ef6c00\" for level in RiskLevel}\n",
+     "tests.test_gui_theme_contrast.RenderedColourTests"
+     ".test_every_colour_a_screen_renders_is_legible"),
+
+    ("the verify rows come from the theme", "gui/app.py",
+     "STATUS_COLORS = dict(theme.RESULT_COLOUR)\n",
+     "STATUS_COLORS = {\"modified\": \"#e65100\"}\n",
+     "tests.test_gui_theme_contrast.RenderedColourTests"
+     ".test_the_screens_take_their_colours_from_the_theme"),
+
+    # The badge passes its colour at the call site, so it never went through
+    # the palette at all - this was the worst of the three at 2.68:1.
+    ("the scan badge uses a legible tone", "gui/views/trust_check_view.py",
+     "        self._draw_badge(theme.MUTED, " + chr(34) + chr(8212) + chr(34) + ")\n",
+     "        self._draw_badge(" + chr(34) + "#9e9e9e" + chr(34) + ", " + chr(34) + chr(8212) + chr(34) + ")\n",
+     "tests.test_gui_theme_contrast.BadgeCanvasTests"
+     ".test_the_badge_is_legible_in_every_state_it_draws"),
+
+    # The palette was first derived against white. ttk paints most of the
+    # window with SystemButtonFace, so those ratios were upper bounds and two
+    # colours shipped under AA. The surfaces are now read back from ttk.
+    ("theme surfaces match what ttk paints", "gui/theme.py",
+     "SURFACE = \"#f0f0f0\"",
+     "SURFACE = \"#ffffff\"",
+     "tests.test_gui_theme_contrast.BadgeCanvasTests"
+     ".test_the_theme_knows_what_the_toolkit_actually_paints"),
+
+    ("the report palette tracks the screen", "core/trust_report.py",
+     "    RiskLevel.MEDIUM.value: \"#a74b00\",\n",
+     "    RiskLevel.MEDIUM.value: \"#ef6c00\",\n",
+     "tests.test_gui_theme_contrast.ReportPaletteTests"
+     ".test_the_report_colours_a_verdict_like_the_screen_does"),
+
+    ("report text stays legible", "core/trust_report.py",
+     "  .weight {{ color:#6f6f6f; font-weight:400; }}",
+     "  .weight {{ color:#888; font-weight:400; }}",
+     "tests.test_gui_theme_contrast.ReportPaletteTests"
+     ".test_every_colour_the_report_sets_text_in_is_legible"),
+
     ("GUI reports an underivable output path", "gui/app.py",
      "        except (ValueError, OSError) as exc:\n",
      "        except ZeroDivisionError as exc:\n",
@@ -372,6 +415,23 @@ def main() -> int:
                 results.append((label, "ANCHOR-MISSING", ""))
                 print(f"  !! {label}: revert anchor not found in {rel}")
                 continue
+            # The named test has to pass against UNMODIFIED code first.
+            # unittest exits non-zero for a test it cannot even find, so a
+            # renamed or deleted test looks exactly like the revert working:
+            # the entry goes green while protecting nothing. That is the same
+            # false green this whole tool exists to catch, and it had already
+            # happened once here.
+            base_code, base_err = run_test(scratch, dotted)
+            if base_code != 0:
+                reason = next(
+                    (ln for ln in base_err.splitlines()
+                     if ln.startswith(("FAIL:", "ERROR:"))), "?"
+                )
+                results.append((label, "STALE-TEST", reason))
+                print(f"  !! {label}: the named test does not pass on clean "
+                      f"code -> {reason[:70]}")
+                continue
+
             path.write_text(text.replace(find, replace, 1), encoding="utf-8")
 
             code, err = run_test(scratch, dotted)

@@ -233,6 +233,9 @@ class BuildProgressTests(_ScanCase):
         terminal = rec.assert_contract(self)
         self.assertIs(terminal.state, ScanState.FAILED)
 
+
+
+class VerifyProgressTests(_ScanCase):
     def test_a_verify_that_raises_still_reports_a_terminal_event(self) -> None:
         self._populate(3)
         manifest = build_manifest_for_folder(self.data).manifest
@@ -254,8 +257,6 @@ class BuildProgressTests(_ScanCase):
         terminal = rec.assert_contract(self)
         self.assertIs(terminal.state, ScanState.FAILED)
 
-
-class VerifyProgressTests(_ScanCase):
     def _manifest(self):
         return build_manifest_for_folder(self.data).manifest
 

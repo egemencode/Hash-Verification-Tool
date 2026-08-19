@@ -203,3 +203,23 @@ Testler: `tests/test_gui_advanced_cancel.py` (4 davranış testi), dördü de
 > diyaloğuyla reddediyor, yani veri güvenliği sorunu değil; sekmelerin
 > `TrustCheckView._set_busy` gibi bir meşgul girişine kavuşması bir
 > kullanılabilirlik işi olarak duruyor.
+
+## 10. Koyu tema desteği yok
+
+`gui/theme.py` renkleri beyaz zemine göre ayarlandı ve neredeyse tamamı koyu
+zeminde AA'nın altına düşüyor (ölçüm, `#1e1e1e` zemine karşı):
+
+| Token | Beyaz | Koyu |
+|---|---|---|
+| `OK` #2e7d32 | 5.13 | **3.25** |
+| `DANGER` #c62828 | 5.62 | **2.97** |
+| `INFO` #1565c0 | 5.75 | **2.90** |
+| `TRACE` #6a1b9a | 9.39 | **1.78** |
+| `MUTED` #616161 | 6.19 | **2.69** |
+
+Yani koyu tema "bir bayrak çevirmek" değil: **ikinci bir palet** ve Tkinter'da
+her widget için elle uygulama gerektiriyor (ttk'nın `vista`/`clam` temaları
+Windows'un koyu modunu izlemiyor).
+
+**Yapılacak:** İkinci palet + Windows tema algılama + `_apply_style` içinde
+uygulama. Kontrast testi ikinci paleti de yürüyecek şekilde genişletilmeli.

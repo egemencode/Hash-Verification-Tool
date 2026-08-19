@@ -13,6 +13,7 @@ from tkinter import messagebox, ttk
 from typing import Callable
 
 from core.vt_client import VirusTotalClient, VTStatus
+from gui import theme
 from gui.i18n import SUPPORTED_LANGUAGES
 from core.trust_pipeline import PRIVACY_NOTICE
 from utils.settings import AppSettings, SettingsError
@@ -52,14 +53,14 @@ class SettingsView(ttk.Frame):
                 "Çevrimiçi kontrol siz açana kadar kapalıdır."
             ),
             justify="left",
-            foreground="#444",
+            foreground=theme.TEXT,
             wraplength=720,
         ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
 
         ttk.Label(vt_frame, text="API Anahtarı:").grid(row=1, column=0, sticky="w", pady=(0, 4))
         self.api_key_var = tk.StringVar(value=self._settings.virustotal_api_key)
         self._api_entry = ttk.Entry(
-            vt_frame, textvariable=self.api_key_var, show="*", font=("Consolas", 10)
+            vt_frame, textvariable=self.api_key_var, show="*", font=theme.FONT_MONO
         )
         self._api_entry.grid(row=1, column=1, sticky="ew", padx=(10, 10), pady=(0, 4))
 
@@ -92,7 +93,7 @@ class SettingsView(ttk.Frame):
         )
 
         self.test_status_var = tk.StringVar(value="")
-        ttk.Label(vt_frame, textvariable=self.test_status_var, foreground="#444").grid(
+        ttk.Label(vt_frame, textvariable=self.test_status_var, foreground=theme.TEXT).grid(
             row=4, column=0, columnspan=3, sticky="w", pady=(8, 0)
         )
 
@@ -121,7 +122,7 @@ class SettingsView(ttk.Frame):
         ttk.Label(
             lang_frame,
             text="Dil değişikliği “Kaydet” düğmesine bastıktan sonra hemen uygulanır.",
-            foreground="#666",
+            foreground=theme.MUTED,
         ).pack(side="left", padx=(10, 0))
 
     # ------------------------------------------------------------------

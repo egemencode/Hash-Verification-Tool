@@ -54,6 +54,7 @@ from core.scan_policy import (
 from core.reporter import convert_report, report_to_csv, report_to_json
 from core.verifier import Verifier
 from core.vt_client import VirusTotalClient
+from gui import theme
 from gui.trust_presenter import collect_startup_warnings, describe_result
 from gui.i18n import (
     DEFAULT_LANGUAGE,
@@ -83,13 +84,7 @@ log = get_logger("gui")
 POLL_INTERVAL_MS = 100
 
 # Tag → foreground colour for the verification result tree.
-STATUS_COLORS = {
-    "unchanged": "#2e7d32",   # green
-    "modified":  "#e65100",   # orange
-    "new":       "#1565c0",   # blue
-    "missing":   "#c62828",   # red
-    "errors":    "#6a1b9a",   # purple
-}
+STATUS_COLORS = dict(theme.RESULT_COLOUR)
 
 # Max visible path length in the status bar before we truncate with an
 # ellipsis prefix. Keeps the bar from reflowing on very deep trees.
@@ -252,14 +247,17 @@ class HashToolApp(tk.Tk):
     # ------------------------------------------------------------------
     def _apply_style(self) -> None:
         style = ttk.Style(self)
-        for theme in ("vista", "clam", "default"):
+        # Not `theme`: that name is the design-token module in this file's
+        # namespace, and shadowing it here made every token lookup below read
+        # off a string instead.
+        for theme_name in ("vista", "clam", "default"):
             try:
-                style.theme_use(theme)
+                style.theme_use(theme_name)
                 break
             except tk.TclError:
                 continue
         style.configure("Status.TLabel", padding=(8, 4))
-        style.configure("Accent.TButton", font=("Segoe UI", 10, "bold"))
+        style.configure("Accent.TButton", font=theme.FONT_UI_BOLD)
 
     def _render_ui(self) -> None:
         """Build window title, menu, notebook and status bar from scratch."""
@@ -703,7 +701,7 @@ class HashTab(_BaseTab):
         self.sign_key_var = tk.StringVar()
         self._path_row(4, t("hash.sign_key"), self.sign_key_var, self._pick_sign_key)
         ttk.Label(
-            self, text=t("hash.sign_key.hint"), foreground="#666", wraplength=680,
+            self, text=t("hash.sign_key.hint"), foreground=theme.MUTED, wraplength=680,
             justify="left",
         ).grid(row=5, column=1, columnspan=2, sticky="w", pady=(0, 6))
 
@@ -712,7 +710,7 @@ class HashTab(_BaseTab):
         ).grid(row=6, column=0, columnspan=3, sticky="e", pady=(12, 8))
 
         ttk.Label(self, text=t("hash.result")).grid(row=7, column=0, sticky="w")
-        self.output_area = ScrolledText(self, height=18, wrap="word", font=("Consolas", 10))
+        self.output_area = ScrolledText(self, height=18, wrap="word", font=theme.FONT_MONO)
         self.output_area.grid(row=8, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
         self.rowconfigure(8, weight=1)
 
@@ -937,7 +935,7 @@ class VerifyTab(_BaseTab):
             2, t("verify.trusted_key"), self.trusted_key_var, self._pick_trusted_key
         )
         ttk.Label(
-            self, text=t("verify.trusted_key.hint"), foreground="#666", wraplength=680,
+            self, text=t("verify.trusted_key.hint"), foreground=theme.MUTED, wraplength=680,
             justify="left",
         ).grid(row=3, column=1, columnspan=2, sticky="w", pady=(0, 6))
 
@@ -949,7 +947,7 @@ class VerifyTab(_BaseTab):
         ).grid(row=5, column=0, columnspan=3, sticky="e", pady=(12, 8))
 
         ttk.Label(self, text=t("verify.summary")).grid(row=6, column=0, sticky="w")
-        self.summary = ScrolledText(self, height=7, wrap="word", font=("Consolas", 10))
+        self.summary = ScrolledText(self, height=7, wrap="word", font=theme.FONT_MONO)
         self.summary.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(4, 6))
 
         ttk.Label(self, text=t("verify.details")).grid(row=8, column=0, sticky="w")
@@ -1158,7 +1156,7 @@ class ReportTab(_BaseTab):
         ).grid(row=3, column=0, columnspan=3, sticky="e", pady=(12, 8))
 
         ttk.Label(self, text=t("report.log")).grid(row=4, column=0, sticky="w")
-        self.output_area = ScrolledText(self, height=16, wrap="word", font=("Consolas", 10))
+        self.output_area = ScrolledText(self, height=16, wrap="word", font=theme.FONT_MONO)
         self.output_area.grid(row=5, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
         self.rowconfigure(5, weight=1)
 

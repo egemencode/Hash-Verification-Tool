@@ -84,9 +84,15 @@ def export_json(report: TrustReport, output_path: str | Path) -> Path:
 # ----------------------------------------------------------------------
 # HTML
 # ----------------------------------------------------------------------
+# A third copy of the risk palette. It cannot import gui.theme without
+# inverting the layering, so the two are kept in step by
+# tests/test_gui_theme_contrast.py instead: the copies existing is tolerable,
+# the copies drifting apart is not — and they did, the moment the on-screen
+# colours were repaired for contrast and this one was left behind, so the same
+# verdict rendered in two shades depending on where you looked at it.
 _RISK_COLOR = {
-    RiskLevel.LOW.value:    "#2e7d32",
-    RiskLevel.MEDIUM.value: "#ef6c00",
+    RiskLevel.LOW.value:    "#2b742f",
+    RiskLevel.MEDIUM.value: "#a74b00",
     RiskLevel.HIGH.value:   "#c62828",
     RiskLevel.UNKNOWN.value: "#616161",
 }
@@ -170,11 +176,11 @@ def export_html(report: TrustReport, output_path: str | Path) -> Path:
   code {{ font-family: Consolas, monospace; font-size: 13px; word-break: break-all; }}
   .advice {{ background:#fff8e1; border-left:4px solid #ffb300; padding:10px 14px; border-radius:6px; }}
   .muted {{ color:#666; font-size:13px; }}
-  .sev-good {{ color:#2e7d32; }}
-  .sev-warn {{ color:#ef6c00; }}
+  .sev-good {{ color:#2b742f; }}
+  .sev-warn {{ color:#a74b00; }}
   .sev-bad  {{ color:#c62828; }}
   .sev-info {{ color:#555; }}
-  .weight {{ color:#888; font-weight:400; }}
+  .weight {{ color:#6f6f6f; font-weight:400; }}
 </style>
 </head>
 <body>

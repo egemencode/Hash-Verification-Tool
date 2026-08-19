@@ -28,6 +28,7 @@ from core.hash_utils import HashError, compute_file_hashes
 from core.local_verify import LocalStoreError, LocalVerifyStatus, LocalVerifyStore
 from core.scan_controller import ScanCancelled, ScanController, ScanState
 from core.risk_engine import RiskLevel
+from gui import theme
 from core.signature_checker import SignatureStatus
 from core.trust_pipeline import (
     PRIVACY_NOTICE,
@@ -98,10 +99,10 @@ def decode_dropped_path(raw: bytes | str) -> str:
 
 # Risk-level → (badge background, badge text)
 RISK_PRESENTATION: dict[str, tuple[str, str]] = {
-    RiskLevel.LOW.value:     ("#2e7d32", "Düşük Risk"),
-    RiskLevel.MEDIUM.value:  ("#ef6c00", "Orta Risk"),
-    RiskLevel.HIGH.value:    ("#c62828", "Yüksek Risk"),
-    RiskLevel.UNKNOWN.value: ("#616161", "Bilinmiyor"),
+    RiskLevel.LOW.value:     (theme.risk_colour(RiskLevel.LOW.value), "Düşük Risk"),
+    RiskLevel.MEDIUM.value:  (theme.risk_colour(RiskLevel.MEDIUM.value), "Orta Risk"),
+    RiskLevel.HIGH.value:    (theme.risk_colour(RiskLevel.HIGH.value), "Yüksek Risk"),
+    RiskLevel.UNKNOWN.value: (theme.risk_colour(RiskLevel.UNKNOWN.value), "Bilinmiyor"),
 }
 
 
@@ -199,13 +200,13 @@ class TrustCheckView(ttk.Frame):
         # machine before they start a scan.
         self.online_state_var = tk.StringVar()
         ttk.Label(
-            btns, textvariable=self.online_state_var, foreground="#444"
+            btns, textvariable=self.online_state_var, foreground=theme.TEXT
         ).pack(side="left", padx=(16, 0))
         # NOTE: `frame` is laid out with grid; adding a packed child here
         # raises TclError and the whole app fails to open. One geometry
         # manager per container.
         ttk.Label(
-            frame, text=PRIVACY_NOTICE, foreground="#666", wraplength=680,
+            frame, text=PRIVACY_NOTICE, foreground=theme.MUTED, wraplength=680,
             justify="left",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self._refresh_online_state()
@@ -254,7 +255,7 @@ class TrustCheckView(ttk.Frame):
             frame, width=140, height=58, highlightthickness=0, bg=self._bg(frame)
         )
         self.badge_canvas.grid(row=0, column=0, sticky="w", padx=(0, 16), rowspan=3)
-        self._draw_badge("#9e9e9e", "—")
+        self._draw_badge(theme.MUTED, "—")
 
         self.headline_var = tk.StringVar(
             value="Bir dosya seçip “Taramayı Başlat” düğmesine bastığınızda sonuç burada görünecek."
@@ -262,7 +263,7 @@ class TrustCheckView(ttk.Frame):
         ttk.Label(
             frame,
             textvariable=self.headline_var,
-            font=("Segoe UI", 11, "bold"),
+            font=theme.FONT_HEADING,
             wraplength=700,
             justify="left",
         ).grid(row=0, column=1, sticky="w")
@@ -273,7 +274,7 @@ class TrustCheckView(ttk.Frame):
             wrap="word",
             bd=0,
             background=self._bg(frame),
-            font=("Segoe UI", 10),
+            font=theme.FONT_UI,
         )
         self.bullets_text.grid(row=1, column=1, sticky="ew", pady=(8, 8))
         self.bullets_text.configure(state="disabled")
@@ -284,7 +285,7 @@ class TrustCheckView(ttk.Frame):
             textvariable=self.advice_var,
             wraplength=700,
             justify="left",
-            foreground="#444",
+            foreground=theme.TEXT,
         ).grid(row=2, column=1, sticky="w")
 
     # --- Fingerprint (SHA-256) ---------------------------------------
@@ -302,7 +303,7 @@ class TrustCheckView(ttk.Frame):
         entry = ttk.Entry(
             frame,
             textvariable=self.sha256_var,
-            font=("Consolas", 10),
+            font=theme.FONT_MONO,
         )
         entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         entry.state(["readonly"])
@@ -321,7 +322,7 @@ class TrustCheckView(ttk.Frame):
                 "Bu kod dosyanın benzersiz parmak izidir. "
                 "Aynı kod = aynı dosya. Farklı kod = dosya değişmiş demektir."
             ),
-            foreground="#666",
+            foreground=theme.MUTED,
             wraplength=820,
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
@@ -366,7 +367,7 @@ class TrustCheckView(ttk.Frame):
         ttk.Label(
             header,
             text="Teknik Detaylar",
-            font=("Segoe UI", 10, "bold"),
+            font=theme.FONT_UI_BOLD,
         ).grid(row=0, column=0, sticky="w")
         self._details_toggle_var = tk.StringVar(value="Göster ▾")
         self._details_toggle_btn = ttk.Button(
@@ -426,18 +427,18 @@ class TrustCheckView(ttk.Frame):
                 "kırılmış sayılırlar. Yalnızca eski yazılımlarla uyumluluk için "
                 "burada gösteriliyorlar. Asıl parmak izi yukarıdaki SHA-256'dır."
             ),
-            foreground="#666",
+            foreground=theme.MUTED,
             wraplength=620,
             justify="left",
         ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
         rows: dict[str, ttk.Entry] = {}
         for i, algo in enumerate(("md5", "sha1"), start=1):
-            ttk.Label(frame, text=algo.upper() + ":", font=("Segoe UI", 9, "bold")).grid(
+            ttk.Label(frame, text=algo.upper() + ":", font=theme.FONT_LABEL_BOLD).grid(
                 row=i, column=0, sticky="w", pady=4
             )
             var = tk.StringVar(value="—")
-            entry = ttk.Entry(frame, textvariable=var, font=("Consolas", 9))
+            entry = ttk.Entry(frame, textvariable=var, font=theme.FONT_MONO_SMALL)
             entry.grid(row=i, column=1, sticky="ew", padx=(6, 6), pady=4)
             entry.state(["readonly"])
             entry._var = var  # type: ignore[attr-defined]
@@ -971,7 +972,7 @@ class TrustCheckView(ttk.Frame):
             value.destroy()
         current.clear()
         for i, (label, value) in enumerate(rows):
-            l = ttk.Label(frame, text=label + ":", font=("Segoe UI", 9, "bold"))
+            l = ttk.Label(frame, text=label + ":", font=theme.FONT_LABEL_BOLD)
             l.grid(row=i, column=0, sticky="nw", pady=3, padx=(0, 8))
             v = ttk.Label(frame, text=value, wraplength=680, justify="left")
             v.grid(row=i, column=1, sticky="w", pady=3)
@@ -1076,7 +1077,7 @@ class TrustCheckView(ttk.Frame):
     # Visual helpers
     # ==================================================================
     def _clear_summary(self) -> None:
-        self._draw_badge("#9e9e9e", "Taranıyor…")
+        self._draw_badge(theme.MUTED, "Taranıyor…")
         self.headline_var.set("Dosya taranıyor, lütfen bekleyin…")
         self.bullets_text.configure(state="normal")
         self.bullets_text.delete("1.0", "end")
@@ -1092,14 +1093,14 @@ class TrustCheckView(ttk.Frame):
         c.configure(bg=self._bg(c.master))
         c.create_oval(8, 8, 50, 50, fill=color, outline=color)
         c.create_text(60, 30, text=text, anchor="w",
-                      font=("Segoe UI", 11, "bold"), fill=color)
+                      font=theme.FONT_HEADING, fill=color)
 
     @staticmethod
     def _bg(widget: tk.Widget) -> str:
         try:
-            return ttk.Style().lookup(widget.winfo_class(), "background") or "#ffffff"
+            return ttk.Style().lookup(widget.winfo_class(), "background") or theme.SURFACE
         except tk.TclError:
-            return "#ffffff"
+            return theme.SURFACE
 
     def _copy_to_clipboard(self, text: str) -> None:
         if not text or text == "—":

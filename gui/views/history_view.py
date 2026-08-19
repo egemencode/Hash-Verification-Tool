@@ -14,6 +14,7 @@ from typing import Callable, Optional
 
 from core.history_manager import HistoryEntry, HistoryManager, HistoryStoreError
 from core.risk_engine import RiskLevel
+from gui import theme
 
 
 _LEVEL_LABEL = {
@@ -22,12 +23,7 @@ _LEVEL_LABEL = {
     RiskLevel.HIGH.value:    "Yüksek",
     RiskLevel.UNKNOWN.value: "Bilinmiyor",
 }
-_LEVEL_COLOR = {
-    RiskLevel.LOW.value:     "#2e7d32",
-    RiskLevel.MEDIUM.value:  "#ef6c00",
-    RiskLevel.HIGH.value:    "#c62828",
-    RiskLevel.UNKNOWN.value: "#616161",
-}
+_LEVEL_COLOR = {level.value: theme.risk_colour(level.value) for level in RiskLevel}
 
 
 class HistoryView(ttk.Frame):
@@ -54,7 +50,7 @@ class HistoryView(ttk.Frame):
         ttk.Label(
             header,
             text="Son taranan dosyalar (yeniden eskiye). Yeniden taramak için satıra çift tıklayın.",
-            font=("Segoe UI", 10, "bold"),
+            font=theme.FONT_UI_BOLD,
         ).pack(side="left")
 
         btns = ttk.Frame(header)
@@ -91,7 +87,7 @@ class HistoryView(ttk.Frame):
         self.tree.bind("<Double-1>", self._on_double_click)
 
         self.empty_label = ttk.Label(
-            self, text="Henüz tarama yapılmadı.", foreground="#666"
+            self, text="Henüz tarama yapılmadı.", foreground=theme.MUTED
         )
 
     # ------------------------------------------------------------------

@@ -108,6 +108,41 @@ the verdict won.
   migrated and scrubbed.
 
 ### Fixed
+- **Colours the interface drew text in were illegible.** Measured against white
+  the neutral badge was 2.68:1 — the "Taranıyor…" state, on screen during every
+  scan — with the medium-risk orange at 3.08:1 and the modified-file orange at
+  3.79:1, where WCAG AA asks 4.5:1 for body text. A risk indicator nobody can
+  read is worse than none: it occupies the place the warning was meant to be.
+  White turned out to be the wrong yardstick: ttk paints most of the window
+  with `SystemButtonFace` (`#f0f0f0`), and every ratio measured against white
+  is an upper bound on what is actually on screen. Against the real surface the
+  repaired orange was still 4.39:1 and the low-risk green sat exactly on 4.50.
+  The palette is now derived against the darker of the two real grounds, so it
+  holds on both, and the surfaces are read back from the live ttk style by a
+  test rather than assumed.
+- Colours and fonts were literals in four view modules — eleven colours in
+  twenty-eight places, the risk palette written out twice — so the two copies
+  could drift apart with nothing to notice, and "fix the contrast" had no
+  single place to happen. They now come from `gui/theme.py`, and the contrast
+  of every colour a screen renders is recomputed from the WCAG formula by
+  `tests/test_gui_theme_contrast.py`.
+  Consolidating them moved a colour that was already legible: hint text went
+  from `#666666` to `#616161`, because it and the "unknown" grey differed by
+  five units and no eye separates those. Font sizes are unchanged.
+- The exported HTML report carried a third copy of the risk palette, so
+  repairing the on-screen colours made the same verdict render in two different
+  shades depending on whether you read it in the window or in the report saved
+  from that window. It cannot import the GUI theme without inverting the
+  layering, so a test keeps the two in step instead — and while there, the
+  report's own `.sev-warn` (3.08:1) and de-emphasised `.weight` (3.54:1) were
+  brought up to AA as well.
+- `tools/verify_fix_coverage.py` counted a revert as proven whenever the test
+  run exited non-zero — which `unittest` also does for a test it cannot find.
+  A renamed or misfiled test therefore left an entry green while protecting
+  nothing, and one had: the verify-side terminal-event test lived in the wrong
+  class, so its entry had never once run the test it named. The harness now
+  requires the named test to pass against unmodified code before the revert is
+  applied.
 - **Settings could silently undo a language you had already switched to.** The
   value lived in three places and the menu switch updated two of them, so the
   Settings tab was rebuilt holding the previous language; the next save — even
