@@ -420,6 +420,224 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.test.network_error": "The internet could not be reached.",
         "settings.test.missing": "Enter an API key.",
         "settings.test.error": "Unknown error: {error}",
+
+        # ====================================================================
+        # The verdict itself.
+        #
+        # core/risk_engine.py and core/smart_summary.py decide which of these
+        # is true and hand back a key; nothing in core reads this table. The
+        # wording carries a rule the code cannot enforce: none of it says a
+        # file is safe. No tool can establish that, and a translation that
+        # quietly promises it would be a worse defect than an untranslated one.
+        # ====================================================================
+
+        # --- Headline above the risk badge ----------------------------------
+        "risk.headline.low": "No strong sign of risk was found.",
+        "risk.headline.medium": "Take care — there are some suspicious signs.",
+        "risk.headline.high": "This file may be dangerous.",
+        "risk.headline.unknown": "There is not enough data about this file.",
+
+        # --- Advice line ----------------------------------------------------
+        "summary.advice.low": (
+            "That does not mean the file is definitely safe — only open files "
+            "you downloaded from sources you trust."
+        ),
+        "summary.advice.medium": (
+            "Check where the file came from, and the address you downloaded it "
+            "from, before you open it."
+        ),
+        "summary.advice.high": (
+            "We recommend not running this file. If it looks suspicious, delete "
+            "it, and do not use it again without re-examining where it came from."
+        ),
+        "summary.advice.unknown": (
+            "For a clearer result you can add your VirusTotal API key in "
+            "Settings, or remember the file so you are told later whether it "
+            "has changed."
+        ),
+
+        # --- Summary bullets: VirusTotal ------------------------------------
+        "summary.vt.no_usable_analysis": (
+            "A VirusTotal result came back, but no usable engine analysis was "
+            "in it; this cannot count as a sign of safety."
+        ),
+        "summary.vt.clean_but_stale": (
+            "VirusTotal shows no malicious flag, but that result is very old; "
+            "it is not current evidence about the file as it is now."
+        ),
+        "summary.vt.clean_but_undated": (
+            "VirusTotal shows no malicious flag, but that result cannot be "
+            "dated; it is not current evidence about the file as it is now."
+        ),
+        "summary.vt.clean": (
+            "No security engine on VirusTotal flagged this as malicious or "
+            "suspicious."
+        ),
+        "summary.vt.suspicious_only": (
+            "{count} engines found this file suspicious, but none flagged it "
+            "as malicious."
+        ),
+        "summary.vt.malicious": "{count} security engines flagged this file as malicious.",
+        "summary.vt.not_found": (
+            "VirusTotal has not seen this file before — it may be new or rare."
+        ),
+        "summary.vt.no_key": "No VirusTotal query was made (no API key is configured).",
+        "summary.vt.unauthorized": "Your VirusTotal key was rejected.",
+        "summary.vt.rate_limited": "VirusTotal's rate limit was reached; try again shortly.",
+        "summary.vt.network_error": (
+            "The VirusTotal query failed because no internet connection could "
+            "be made."
+        ),
+        "summary.vt.failed": "The VirusTotal query could not be completed.",
+
+        # --- Summary bullets: signature -------------------------------------
+        "summary.sig.signed_valid_by": (
+            "The file is signed by {signer} and the signature is valid; that "
+            "does not prove it is harmless."
+        ),
+        "summary.sig.signed_valid": (
+            "The file has a valid digital signature; that does not prove it is "
+            "harmless."
+        ),
+        "summary.sig.hash_mismatch": (
+            "Careful: the file is signed, but its contents appear to have "
+            "changed since it was signed (the hash does not match)."
+        ),
+        "summary.sig.untrusted": (
+            "The file is signed, but the certificate chain could not be "
+            "verified — the signature cannot be treated as trustworthy."
+        ),
+        "summary.sig.unsigned": "The file has no digital signature.",
+        "summary.sig.not_applicable": "This kind of file cannot carry a digital signature.",
+
+        # --- Summary bullets: local record ----------------------------------
+        "summary.local.same": "Identical to the version you remembered earlier.",
+        "summary.local.changed": (
+            "Careful: this file looks different from the version you remembered."
+        ),
+        "summary.local.new": "This file's hash was added to the local record.",
+
+        # --- Evidence rows: the source of each finding -----------------------
+        "factor.name.virustotal": "VirusTotal",
+        "factor.name.signature": "Digital Signature",
+        "factor.name.local": "Local Record",
+
+        "factor.vt.not_queried": "No query was made.",
+        "factor.vt.no_analysing_engines": (
+            "A result came back but no engine supplied data; not counted as a "
+            "sign of safety."
+        ),
+        "factor.vt.malicious": "{count} security engines flagged it as malicious.",
+        "factor.vt.suspicious": "{count} engines flagged it as suspicious.",
+        "factor.vt.stale": (
+            "The VirusTotal result is very old; not counted as current evidence "
+            "of safety."
+        ),
+        "factor.vt.undated": (
+            "The VirusTotal result could not be dated; not counted as current "
+            "evidence of safety."
+        ),
+        "factor.vt.malformed": (
+            "The VirusTotal engine statistics could not be read; not counted as "
+            "a sign of safety."
+        ),
+        "factor.vt.clean": "No malicious or suspicious flag from {count} engines.",
+        "factor.vt.not_found": (
+            "This hash is not on VirusTotal — the file may be new or rare; that "
+            "does not mean it is clean."
+        ),
+        "factor.vt.no_key": "No query could be made because no API key is configured.",
+        "factor.vt.unauthorized": "The API key was rejected.",
+        "factor.vt.rate_limited": "The rate limit was reached.",
+        "factor.vt.network_error": "VirusTotal could not be reached.",
+        "factor.vt.failed": "The query could not be completed.",
+        "factor.vt.reported": "VirusTotal reported: {message}",
+
+        "factor.sig.not_checked": "Not checked.",
+        "factor.sig.signed_valid_by": "Valid digital signature: {signer}",
+        "factor.sig.signed_valid": "The file has a valid digital signature.",
+        "factor.sig.hash_mismatch": (
+            "There is a signature, but the file's contents changed after it was "
+            "signed (the hash does not match)."
+        ),
+        "factor.sig.untrusted": (
+            "There is a signature, but the certificate chain could not be "
+            "verified (not trustworthy)."
+        ),
+        "factor.sig.unsigned": "The file carries no digital signature.",
+        "factor.sig.not_applicable": (
+            "A signature check does not apply to this kind of file."
+        ),
+        "factor.sig.unsupported": "Not supported on this operating system.",
+        "factor.sig.unknown": "The signature state could not be determined.",
+        "factor.sig.reported": "The signature check reported: {message}",
+
+        "factor.local.same": (
+            "Identical to the version remembered earlier (not evidence of "
+            "harmlessness)."
+        ),
+        "factor.local.changed": "The file differs from the version remembered earlier!",
+        "factor.local.new": "This file's hash was added to the local record.",
+
+        # --- Verify tab: what a manifest's signature establishes -------------
+        "manifest.badge.unsigned": "Manifest is unsigned",
+        "manifest.badge.unsigned.detail": (
+            "This manifest was not signed. Where the reference hashes came from "
+            "cannot be established; the manifest file may have been altered."
+        ),
+        "manifest.badge.embedded": "Signature valid — the signing key is not trusted",
+        "manifest.badge.embedded.detail": (
+            "The signature was verified with the key inside the manifest "
+            "itself. That only shows the manifest is internally consistent: "
+            "whoever altered it could have embedded their own key too. Supply "
+            "the public key you trust to establish where it came from."
+        ),
+        "manifest.badge.trusted": "Verified with a trusted key",
+        "manifest.badge.trusted.detail": (
+            "The manifest's signature was verified with the trusted public key "
+            "you supplied; its contents have not changed since it was signed."
+        ),
+        "manifest.badge.invalid": "Manifest signature is invalid",
+        "manifest.badge.invalid.detail": (
+            "The manifest's signature could not be verified. The manifest may "
+            "have been tampered with; do not rely on the comparison results."
+        ),
+        "manifest.result.invalid": (
+            "Manifest signature is invalid — the comparison result is not "
+            "trustworthy."
+        ),
+        "manifest.result.mismatch": "Differences found — the files do not match the manifest.",
+        "manifest.result.trusted": (
+            "The files match a manifest verified with a trusted key."
+        ),
+        "manifest.result.embedded": (
+            "The files match the manifest, but where the manifest came from was "
+            "not established."
+        ),
+        "manifest.result.unsigned": (
+            "The files match the manifest, but because the manifest is unsigned "
+            "the reference data may have been altered."
+        ),
+        "report.doc.title": "File Trust Report",
+        "report.doc.generated": "Generated",
+        "report.doc.section.file": "File Details",
+        "report.doc.section.hashes": "Hash Values",
+        "report.doc.section.vt": "VirusTotal",
+        "report.doc.section.signature": "Digital Signature",
+        "report.doc.section.local": "Local Record",
+        "report.doc.section.factors": "Risk Factors",
+        "report.doc.no_factors": "The factor list is empty.",
+        "report.doc.not_queried": "No query was made.",
+        "report.doc.not_checked": "Not checked.",
+        "report.doc.no_local": "No local record.",
+        "report.doc.message": "Message",
+        "report.err.json": "The JSON report could not be written: {error}",
+        "report.err.html": "The HTML report could not be written: {error}",
+        "startup.warning.title": "Data Warning",
+        "startup.warning.body": (
+            "Some records were not in the expected state when the application "
+            "started:\n\n{lines}"
+        ),
     },
     "tr": {
         # --- Pencere / durum ------------------------------------------------
@@ -813,6 +1031,215 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.test.network_error": "İnternete ulaşılamadı.",
         "settings.test.missing": "Bir API anahtarı girin.",
         "settings.test.error": "Bilinmeyen hata: {error}",
+
+        # ====================================================================
+        # Hükmün kendisi.
+        #
+        # `core/risk_engine.py` ve `core/smart_summary.py` hangisinin doğru
+        # olduğuna karar verip anahtar döndürüyor; çekirdekte bu tabloyu okuyan
+        # hiçbir şey yok. Metinler kodun zorlayamadığı bir kuralı taşıyor:
+        # hiçbiri dosyanın güvenli olduğunu söylemiyor. Hiçbir araç bunu
+        # kanıtlayamaz ve sessizce böyle bir söz veren bir çeviri, hiç
+        # çevrilmemiş olmasından daha kötü bir kusur olurdu.
+        # ====================================================================
+
+        # --- Risk rozetinin üstündeki başlık ---------------------------------
+        "risk.headline.low": "Güçlü bir risk işareti bulunamadı.",
+        "risk.headline.medium": "Dikkatli olun — bazı şüpheli işaretler var.",
+        "risk.headline.high": "Bu dosya şüpheli olabilir.",
+        "risk.headline.unknown": "Bu dosya hakkında yeterli veri yok.",
+
+        # --- Öğüt satırı ------------------------------------------------------
+        "summary.advice.low": (
+            "Bu, dosyanın kesinlikle güvenli olduğu anlamına gelmez — yalnızca "
+            "güvendiğiniz kaynaklardan indirdiğiniz dosyaları açın."
+        ),
+        "summary.advice.medium": (
+            "Dosyayı açmadan önce kaynağını ve indirme adresini bir kez daha "
+            "doğrulamanızı öneririz."
+        ),
+        "summary.advice.high": (
+            "Bu dosyayı çalıştırmamanızı öneririz. Şüpheli görünüyorsa silin "
+            "ve indirildiği kaynağı tekrar incelemeden kullanmayın."
+        ),
+        "summary.advice.unknown": (
+            "Daha net bir sonuç için Ayarlar'dan VirusTotal API anahtarınızı "
+            "ekleyebilir veya dosyayı kaydederek ileride değişip değişmediğini "
+            "izleyebilirsiniz."
+        ),
+
+        # --- Özet maddeleri: VirusTotal ---------------------------------------
+        "summary.vt.no_usable_analysis": (
+            "VirusTotal sonucu alındı ancak kullanılabilir motor analizi "
+            "bulunamadı; bu bir güven işareti sayılamaz."
+        ),
+        "summary.vt.clean_but_stale": (
+            "VirusTotal'da zararlı işareti yok, ancak bu sonuç çok eski; "
+            "dosyanın şu anki hâli için güncel bir kanıt sayılmaz."
+        ),
+        "summary.vt.clean_but_undated": (
+            "VirusTotal'da zararlı işareti yok, ancak bu sonucun tarihi "
+            "belirsiz; dosyanın şu anki hâli için güncel bir kanıt sayılmaz."
+        ),
+        "summary.vt.clean": (
+            "VirusTotal'daki güvenlik motorlarından zararlı veya şüpheli "
+            "işareti gelmedi."
+        ),
+        "summary.vt.suspicious_only": (
+            "{count} motor bu dosyayı şüpheli buldu, ama zararlı olarak "
+            "işaretleyen yok."
+        ),
+        "summary.vt.malicious": "{count} güvenlik motoru bu dosyayı zararlı olarak işaretledi.",
+        "summary.vt.not_found": (
+            "VirusTotal bu dosyayı daha önce görmemiş — yeni veya nadir bir "
+            "dosya olabilir."
+        ),
+        "summary.vt.no_key": "VirusTotal sorgusu yapılmadı (API anahtarı ayarlanmamış).",
+        "summary.vt.unauthorized": "VirusTotal anahtarınız reddedildi.",
+        "summary.vt.rate_limited": "VirusTotal hız limitine ulaşıldı, biraz sonra tekrar deneyin.",
+        "summary.vt.network_error": (
+            "İnternet bağlantısı kurulamadığı için VirusTotal sorgusu başarısız."
+        ),
+        "summary.vt.failed": "VirusTotal sorgusu tamamlanamadı.",
+
+        # --- Özet maddeleri: imza ---------------------------------------------
+        "summary.sig.signed_valid_by": (
+            "Dosya {signer} tarafından imzalanmış (imza geçerli); bu, dosyanın "
+            "zararsız olduğunu kanıtlamaz."
+        ),
+        "summary.sig.signed_valid": (
+            "Dosyanın geçerli bir dijital imzası var; bu, zararsız olduğunu "
+            "kanıtlamaz."
+        ),
+        "summary.sig.hash_mismatch": (
+            "Dikkat: dosyanın imzası var ama içeriği imzalandıktan sonra "
+            "değişmiş görünüyor (hash uyuşmuyor)."
+        ),
+        "summary.sig.untrusted": (
+            "Dosyanın imzası var ama sertifika zinciri doğrulanamadı — imza "
+            "güvenilir kabul edilemez."
+        ),
+        "summary.sig.unsigned": "Dosyanın dijital imzası yok.",
+        "summary.sig.not_applicable": "Bu dosya türü dijital imza taşıyamıyor.",
+
+        # --- Özet maddeleri: yerel kayıt --------------------------------------
+        "summary.local.same": "Daha önce kaydettiğiniz sürümle birebir aynı.",
+        "summary.local.changed": (
+            "Dikkat: bu dosya daha önce kaydettiğiniz sürümden farklı görünüyor."
+        ),
+        "summary.local.new": "Bu dosyanın hash'i yerel kayda eklendi.",
+
+        # --- Kanıt satırları: her bulgunun kaynağı ----------------------------
+        "factor.name.virustotal": "VirusTotal",
+        "factor.name.signature": "Dijital İmza",
+        "factor.name.local": "Yerel Kayıt",
+
+        "factor.vt.not_queried": "Sorgu yapılmadı.",
+        "factor.vt.no_analysing_engines": (
+            "Sonuç döndü ama hiçbir motor veri vermedi; güven sinyali sayılmadı."
+        ),
+        "factor.vt.malicious": "{count} güvenlik motoru zararlı olarak işaretledi.",
+        "factor.vt.suspicious": "{count} motor şüpheli olarak işaretledi.",
+        "factor.vt.stale": (
+            "VirusTotal sonucu çok eski; güncel bir güven sinyali sayılmadı."
+        ),
+        "factor.vt.undated": (
+            "VirusTotal sonucunun tarihi belirlenemedi; güncel bir güven "
+            "sinyali sayılmadı."
+        ),
+        "factor.vt.malformed": (
+            "VirusTotal motor istatistikleri okunamadı; güven sinyali sayılmadı."
+        ),
+        "factor.vt.clean": "{count} motorda zararlı/şüpheli işareti yok.",
+        "factor.vt.not_found": (
+            "Bu hash VirusTotal'da yok — dosya yeni veya nadir olabilir; temiz "
+            "olduğu anlamına gelmez."
+        ),
+        "factor.vt.no_key": "API anahtarı ayarlanmadığı için sorgu yapılamadı.",
+        "factor.vt.unauthorized": "API anahtarı reddedildi.",
+        "factor.vt.rate_limited": "Hız limitine takıldı.",
+        "factor.vt.network_error": "VirusTotal'a ulaşılamadı.",
+        "factor.vt.failed": "Sorgu tamamlanamadı.",
+        "factor.vt.reported": "VirusTotal bildirdi: {message}",
+
+        "factor.sig.not_checked": "Kontrol yapılmadı.",
+        "factor.sig.signed_valid_by": "Geçerli dijital imza: {signer}",
+        "factor.sig.signed_valid": "Dosyanın geçerli bir dijital imzası var.",
+        "factor.sig.hash_mismatch": (
+            "İmza var ama dosya içeriği imzalandıktan sonra değişmiş (hash "
+            "uyuşmuyor)."
+        ),
+        "factor.sig.untrusted": (
+            "İmza var ama sertifika zinciri doğrulanamadı (güvenilir değil)."
+        ),
+        "factor.sig.unsigned": "Dosyada dijital imza yok.",
+        "factor.sig.not_applicable": "Bu dosya türü için imza kontrolü uygulanamaz.",
+        "factor.sig.unsupported": "Bu işletim sisteminde desteklenmiyor.",
+        "factor.sig.unknown": "İmza durumu belirlenemedi.",
+        "factor.sig.reported": "İmza kontrolü bildirdi: {message}",
+
+        "factor.local.same": (
+            "Daha önce kaydedilen sürümle birebir aynı (zararlılık kanıtı değil)."
+        ),
+        "factor.local.changed": "Dosya daha önce kaydedilen sürümden farklı!",
+        "factor.local.new": "Bu dosyanın hash'i yerel kayda eklendi.",
+
+        # --- Doğrula sekmesi: manifest imzasının ne kanıtladığı ---------------
+        "manifest.badge.unsigned": "Manifest imzasız",
+        "manifest.badge.unsigned.detail": (
+            "Bu manifest imzalanmamış. Referans hash'lerin kaynağı doğrulanamaz; "
+            "manifest dosyası değiştirilmiş olabilir."
+        ),
+        "manifest.badge.embedded": "İmza geçerli — kaynak anahtar güvenilmiyor",
+        "manifest.badge.embedded.detail": (
+            "İmza, manifestin kendi içindeki anahtarla doğrulandı. Bu yalnızca "
+            "manifestin kendi içinde tutarlı olduğunu gösterir: manifesti "
+            "değiştiren biri kendi anahtarını da gömebilirdi. Kaynağı "
+            "doğrulamak için güvendiğiniz genel anahtarı kullanın."
+        ),
+        "manifest.badge.trusted": "Güvenilen anahtarla doğrulandı",
+        "manifest.badge.trusted.detail": (
+            "Manifest imzası, sağladığınız güvenilen genel anahtarla "
+            "doğrulandı; içeriği imzalandığından beri değişmemiş."
+        ),
+        "manifest.badge.invalid": "Manifest imzası geçersiz",
+        "manifest.badge.invalid.detail": (
+            "Manifestin imzası doğrulanamadı. Manifest kurcalanmış olabilir; "
+            "karşılaştırma sonuçlarına güvenmeyin."
+        ),
+        "manifest.result.invalid": (
+            "Manifest imzası geçersiz — karşılaştırma sonucu güvenilir değil."
+        ),
+        "manifest.result.mismatch": "Farklılıklar bulundu — dosyalar manifestle eşleşmiyor.",
+        "manifest.result.trusted": (
+            "Dosyalar, güvenilen anahtarla doğrulanmış manifestle eşleşiyor."
+        ),
+        "manifest.result.embedded": (
+            "Dosyalar manifestle eşleşiyor; ancak manifestin kaynağı doğrulanmadı."
+        ),
+        "manifest.result.unsigned": (
+            "Dosyalar manifestle eşleşiyor; ancak manifest imzasız olduğu için "
+            "referans veriler değiştirilmiş olabilir."
+        ),
+        "report.doc.title": "Dosya Güven Raporu",
+        "report.doc.generated": "Oluşturulma",
+        "report.doc.section.file": "Dosya Bilgileri",
+        "report.doc.section.hashes": "Hash Değerleri",
+        "report.doc.section.vt": "VirusTotal",
+        "report.doc.section.signature": "Dijital İmza",
+        "report.doc.section.local": "Yerel Kayıt",
+        "report.doc.section.factors": "Risk Faktörleri",
+        "report.doc.no_factors": "Faktör listesi boş.",
+        "report.doc.not_queried": "Sorgu yapılmadı.",
+        "report.doc.not_checked": "Kontrol yapılmadı.",
+        "report.doc.no_local": "Yerel kayıt yok.",
+        "report.doc.message": "Mesaj",
+        "report.err.json": "JSON rapor yazılamadı: {error}",
+        "report.err.html": "HTML rapor yazılamadı: {error}",
+        "startup.warning.title": "Veri Uyarısı",
+        "startup.warning.body": (
+            "Uygulama başlarken bazı kayıtlar beklenen durumda değildi:\n\n{lines}"
+        ),
     },
 }
 

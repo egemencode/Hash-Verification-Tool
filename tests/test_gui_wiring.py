@@ -145,9 +145,20 @@ class HistoryFailureSurfacedTests(unittest.TestCase):
                 self._history = _History()
                 self._on_scan_recorded = None
 
+        from core.phrases import phrase
+        from core.risk_engine import RiskLevel
+        from core.smart_summary import SmartSummary
+
         result = mock.Mock()
-        result.summary.risk_level.value = "unknown"
-        result.summary.headline = "h"
+        # A real summary, not a Mock: the view renders it through the presenter
+        # now, and a Mock would iterate as one more Mock rather than as the
+        # bullets a scan actually produced.
+        result.summary = SmartSummary(
+            headline=phrase("risk.headline.unknown"),
+            risk_level=RiskLevel.UNKNOWN,
+            bullets=[],
+            advice=phrase("summary.advice.unknown"),
+        )
         result.assessment = mock.Mock()
         result.file_info.name = "f.exe"
         result.file_info.path = "C:/f.exe"

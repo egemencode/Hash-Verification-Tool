@@ -14,9 +14,73 @@ hashes came from — so the UI must never present that outcome as a bare
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional
 
 from core.manifest_manager import SignatureState
+from core.phrases import Phrase
+from gui.i18n import t
+
+
+# ======================================================================
+# Rendering the core's verdict
+# ======================================================================
+# core/risk_engine.py and core/smart_summary.py decide *which* sentence is
+# true and hand back a Phrase — a key plus the values that belong in it. The
+# words are chosen here, because this is the layer that already knows which
+# language the user picked. See tests/test_verdict_language.py.
+
+
+def render(phrase: Optional[Phrase]) -> str:
+    """One phrase as words. ``None`` renders as the empty string."""
+    if phrase is None:
+        return ""
+    return t(phrase.key, **dict(phrase.params))
+
+
+@dataclass(frozen=True)
+class RenderedSummary:
+    """The result card, in words."""
+
+    headline: str
+    bullets: list[str] = field(default_factory=list)
+    advice: str = ""
+
+    def as_text(self) -> str:
+        lines = [self.headline]
+        for bullet in self.bullets:
+            lines.append(f"• {bullet}")
+        if self.advice:
+            lines.append("")
+            lines.append(self.advice)
+        return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class RenderedFactor:
+    """One evidence row, in words. Weight and severity are not language."""
+
+    label: str
+    detail: str
+    weight: int
+    severity: str
+
+
+def render_summary(summary) -> RenderedSummary:
+    return RenderedSummary(
+        headline=render(summary.headline),
+        bullets=[render(b) for b in summary.bullets],
+        advice=render(summary.advice),
+    )
+
+
+def render_factor(factor) -> RenderedFactor:
+    return RenderedFactor(
+        label=render(factor.label),
+        detail=render(factor.detail),
+        weight=factor.weight,
+        severity=factor.severity,
+    )
 
 # Severity buckets the GUI maps to colours. Colour is never the only carrier
 # of meaning — every state also has an icon and explicit text.
@@ -40,59 +104,32 @@ class TrustBadge:
     provenance_established: bool
 
 
-_BADGES: dict[SignatureState, TrustBadge] = {
-    SignatureState.UNSIGNED: TrustBadge(
-        state=SignatureState.UNSIGNED,
-        icon="○",
-        label="Manifest imzasız",
-        detail=(
-            "Bu manifest imzalanmamış. Referans hash'lerin kaynağı "
-            "doğrulanamaz; manifest dosyası değiştirilmiş olabilir."
-        ),
-        severity=SEV_WARN,
-        provenance_established=False,
-    ),
-    SignatureState.VALID_EMBEDDED: TrustBadge(
-        state=SignatureState.VALID_EMBEDDED,
-        icon="◐",
-        label="İmza geçerli — kaynak anahtar güvenilmiyor",
-        detail=(
-            "İmza, manifestin kendi içindeki anahtarla doğrulandı. Bu yalnızca "
-            "manifestin kendi içinde tutarlı olduğunu gösterir: manifesti "
-            "değiştiren biri kendi anahtarını da gömebilirdi. Kaynağı "
-            "doğrulamak için güvendiğiniz genel anahtarı kullanın."
-        ),
-        severity=SEV_WARN,
-        provenance_established=False,
-    ),
-    SignatureState.TRUSTED: TrustBadge(
-        state=SignatureState.TRUSTED,
-        icon="✔",
-        label="Güvenilen anahtarla doğrulandı",
-        detail=(
-            "Manifest imzası, sağladığınız güvenilen genel anahtarla "
-            "doğrulandı; içeriği imzalandığından beri değişmemiş."
-        ),
-        severity=SEV_GOOD,
-        provenance_established=True,
-    ),
-    SignatureState.INVALID: TrustBadge(
-        state=SignatureState.INVALID,
-        icon="✖",
-        label="Manifest imzası geçersiz",
-        detail=(
-            "Manifestin imzası doğrulanamadı. Manifest kurcalanmış olabilir; "
-            "karşılaştırma sonuçlarına güvenmeyin."
-        ),
-        severity=SEV_BAD,
-        provenance_established=False,
-    ),
+# state -> (icon, i18n key stem, severity, does this establish provenance?)
+#
+# Keys rather than sentences: this table is built once at import, and a label
+# resolved here would be fixed in whichever language happened to be active
+# when Python first read the file.
+_BADGES: dict[SignatureState, tuple[str, str, str, bool]] = {
+    SignatureState.UNSIGNED: ("○", "manifest.badge.unsigned", SEV_WARN, False),
+    SignatureState.VALID_EMBEDDED: ("◐", "manifest.badge.embedded", SEV_WARN, False),
+    SignatureState.TRUSTED: ("✔", "manifest.badge.trusted", SEV_GOOD, True),
+    SignatureState.INVALID: ("✖", "manifest.badge.invalid", SEV_BAD, False),
 }
 
 
 def trust_badge(state: SignatureState) -> TrustBadge:
     """Return the badge for *state* (falls back to the INVALID badge)."""
-    return _BADGES.get(state, _BADGES[SignatureState.INVALID])
+    if state not in _BADGES:
+        state = SignatureState.INVALID
+    icon, key, severity, established = _BADGES[state]
+    return TrustBadge(
+        state=state,
+        icon=icon,
+        label=t(key),
+        detail=t(f"{key}.detail"),
+        severity=severity,
+        provenance_established=established,
+    )
 
 
 @dataclass(frozen=True)
@@ -114,38 +151,19 @@ def verification_headline(
     result, never as an unconditional "Temiz".
     """
     if state is SignatureState.INVALID:
-        return VerificationHeadline(
-            "✖",
-            "Manifest imzası geçersiz — karşılaştırma sonucu güvenilir değil.",
-            SEV_BAD,
-        )
+        return VerificationHeadline("✖", t("manifest.result.invalid"), SEV_BAD)
 
     if not files_match:
-        return VerificationHeadline(
-            "✖", "Farklılıklar bulundu — dosyalar manifestle eşleşmiyor.", SEV_BAD
-        )
+        return VerificationHeadline("✖", t("manifest.result.mismatch"), SEV_BAD)
 
     if state is SignatureState.TRUSTED:
-        return VerificationHeadline(
-            "✔",
-            "Dosyalar, güvenilen anahtarla doğrulanmış manifestle eşleşiyor.",
-            SEV_GOOD,
-        )
+        return VerificationHeadline("✔", t("manifest.result.trusted"), SEV_GOOD)
 
     if state is SignatureState.VALID_EMBEDDED:
-        return VerificationHeadline(
-            "◐",
-            "Dosyalar manifestle eşleşiyor; ancak manifestin kaynağı doğrulanmadı.",
-            SEV_WARN,
-        )
+        return VerificationHeadline("◐", t("manifest.result.embedded"), SEV_WARN)
 
     # UNSIGNED
-    return VerificationHeadline(
-        "◐",
-        "Dosyalar manifestle eşleşiyor; ancak manifest imzasız olduğu için "
-        "referans veriler değiştirilmiş olabilir.",
-        SEV_WARN,
-    )
+    return VerificationHeadline("◐", t("manifest.result.unsigned"), SEV_WARN)
 
 
 @dataclass(frozen=True)
@@ -178,10 +196,10 @@ def collect_startup_warnings(
         return None
 
     return StartupWarning(
-        title="Veri Uyarısı",
-        body=(
-            "Uygulama başlarken bazı kayıtlar beklenen durumda değildi:\n\n"
-            + "\n\n".join(f"• {line}" for line in lines)
+        title=t("startup.warning.title"),
+        body=t(
+            "startup.warning.body",
+            lines="\n\n".join(f"• {line}" for line in lines),
         ),
     )
 

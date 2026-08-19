@@ -271,6 +271,87 @@ class LanguageSwitchTests(unittest.TestCase):
 
 
 @unittest.skipUnless(TK_AVAILABLE, TK_SKIP or "Tk unavailable")
+@unittest.skipUnless(TK_AVAILABLE, TK_SKIP or "Tk unavailable")
+class SummaryFitTests(unittest.TestCase):
+    """
+    None of the verdict may be hidden, at any window size the app allows.
+
+    The bullets are the evidence for the risk level. A Text widget with a
+    fixed height does not report the lines that do not fit — it stops drawing
+    them, with nothing to say so — and at the 880-pixel minimum this window
+    permits, the longest summary lost a line in Turkish and two in English.
+
+    The longest summary is constructed here rather than waited for: one bullet
+    may come from each of the three checks, so the worst case is the longest
+    sentence in each group, and picking them from the table means a sentence
+    added later is covered without anyone remembering to update this.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self._env = mock.patch.dict(
+            os.environ, {"LOCALAPPDATA": str(Path(self._tmp.name) / "profile")}
+        )
+        self._env.start()
+
+        from gui.i18n import set_language
+
+        set_language("tr")
+        from gui.app import HashToolApp
+
+        self.app = HashToolApp()
+        # The smallest size the application lets a user drag it to.
+        self.app.geometry("880x600")
+        self.app.update()
+
+    def tearDown(self) -> None:
+        from gui.i18n import set_language
+
+        try:
+            self.app.destroy()
+        finally:
+            set_language("tr")
+            self._env.stop()
+            self._tmp.cleanup()
+
+    @staticmethod
+    def _longest_bullets() -> list[str]:
+        from gui.i18n import _TRANSLATIONS, get_language, t  # noqa: SLF001
+
+        table = _TRANSLATIONS[get_language()]
+        out = []
+        for group in ("summary.vt.", "summary.sig.", "summary.local."):
+            keys = [k for k in table if k.startswith(group)]
+            longest = max(
+                keys, key=lambda k: len(t(k, count=99, signer="Some Publisher Ltd"))
+            )
+            out.append(t(longest, count=99, signer="Some Publisher Ltd"))
+        return out
+
+    def _hidden_lines(self) -> int:
+        box = self.app.trust_view.bullets_text
+        box.configure(state="normal")
+        box.delete("1.0", "end")
+        for bullet in self._longest_bullets():
+            box.insert("end", f"• {bullet}\n")
+        box.configure(state="disabled")
+        self.app.trust_view._fit_bullets()          # noqa: SLF001
+        self.app.update()
+        counted = box.count("1.0", "end", "displaylines")
+        wrapped = counted[0] if counted else 0
+        return max(0, wrapped - int(box.cget("height")))
+
+    def test_the_longest_verdict_is_fully_visible(self) -> None:
+        with self.subTest(language="tr"):
+            self.assertEqual(self._hidden_lines(), 0)
+        self.app._switch_language("en")             # noqa: SLF001
+        self.app.geometry("880x600")
+        self.app.update()
+        with self.subTest(language="en"):
+            self.assertEqual(self._hidden_lines(), 0)
+
+
+@unittest.skipUnless(TK_AVAILABLE, TK_SKIP or "Tk unavailable")
 class HistoryRowTests(unittest.TestCase):
     """
     Rows only exist once something has been scanned.

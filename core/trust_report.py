@@ -16,14 +16,28 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from core.file_info import FileInfo
 from core.local_verify import LocalVerifyResult
+from core.phrases import Phrase
 from core.risk_engine import RiskAssessment, RiskLevel
 from core.signature_checker import SignatureResult
 from core.smart_summary import SmartSummary
 from core.vt_client import VTLookupResult
+
+
+# A ``t``-shaped callable: key plus values, in, words out. Passed in rather
+# than imported so this module keeps no opinion about which language is
+# current — the caller already knows, and a report written in the wrong one is
+# not something the reader can fix.
+Translate = Callable[..., str]
+
+
+def _say(translate: Translate, phrase: Optional[Phrase]) -> str:
+    if phrase is None:
+        return ""
+    return translate(phrase.key, **dict(phrase.params))
 
 
 class TrustReportError(Exception):
@@ -48,7 +62,16 @@ class TrustReport:
     )
 
     # ------------------------------------------------------------------
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, translate: Translate) -> dict[str, Any]:
+        """
+        The report as data. *translate* turns the core's phrase keys into
+        words, because a report is read by a person and has to be in the
+        language they were working in.
+
+        Required rather than defaulted on purpose: a report quietly full of
+        ``risk.headline.high`` would still be a valid document, and nothing
+        would notice until somebody opened it.
+        """
         return {
             "schema": "trust-report/1.0",
             "generated_at": self.generated_at,
@@ -57,27 +80,61 @@ class TrustReport:
             "virustotal": self.vt_result.to_dict() if self.vt_result else None,
             "signature": self.signature_result.to_dict() if self.signature_result else None,
             "local_record": self.local_result.to_dict() if self.local_result else None,
-            "risk": self.assessment.to_dict() if self.assessment else None,
+            "risk": self._risk_dict(translate),
             "summary": {
-                "headline": self.summary.headline if self.summary else "",
+                "headline": _say(translate, self.summary.headline) if self.summary else "",
                 "risk_level": self.summary.risk_level.value if self.summary else "",
-                "bullets": list(self.summary.bullets) if self.summary else [],
-                "advice": self.summary.advice if self.summary else "",
+                "bullets": [
+                    _say(translate, b) for b in (self.summary.bullets if self.summary else [])
+                ],
+                "advice": _say(translate, self.summary.advice) if self.summary else "",
             },
+        }
+
+    def _risk_dict(self, translate: Translate) -> Optional[dict[str, Any]]:
+        """
+        The level, the score and the evidence behind them.
+
+        Both spellings of each finding are kept: the words a reader needs, and
+        the key a program can match on. A translated sentence is not a stable
+        identifier, and dropping the key would make the JSON report useless to
+        anything but a human.
+        """
+        if self.assessment is None:
+            return None
+        return {
+            "level": self.assessment.level.value,
+            "score": self.assessment.score,
+            "headline": _say(translate, self.assessment.headline),
+            "headline_key": self.assessment.headline.key,
+            "policy_version": self.assessment.policy_version,
+            "evidence_sufficient": self.assessment.evidence_sufficient,
+            "factors": [
+                {
+                    "label": _say(translate, f.label),
+                    "detail": _say(translate, f.detail),
+                    "detail_key": f.detail.key,
+                    "weight": f.weight,
+                    "severity": f.severity,
+                }
+                for f in self.assessment.factors
+            ],
         }
 
 
 # ----------------------------------------------------------------------
 # JSON
 # ----------------------------------------------------------------------
-def export_json(report: TrustReport, output_path: str | Path) -> Path:
+def export_json(
+    report: TrustReport, output_path: str | Path, *, translate: Translate
+) -> Path:
     path = Path(output_path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as fh:
-            json.dump(report.to_dict(), fh, indent=2, ensure_ascii=False)
+            json.dump(report.to_dict(translate), fh, indent=2, ensure_ascii=False)
     except OSError as exc:
-        raise TrustReportError(f"JSON rapor yazılamadı: {exc}") from exc
+        raise TrustReportError(translate("report.err.json", error=exc)) from exc
     return path
 
 
@@ -97,20 +154,25 @@ _RISK_COLOR = {
     RiskLevel.UNKNOWN.value: "#616161",
 }
 
-_RISK_TR = {
-    RiskLevel.LOW.value:    "Düşük Risk",
-    RiskLevel.MEDIUM.value: "Orta Risk",
-    RiskLevel.HIGH.value:   "Yüksek Risk",
-    RiskLevel.UNKNOWN.value: "Bilinmiyor",
-}
+def export_html(
+    report: TrustReport,
+    output_path: str | Path,
+    *,
+    translate: Translate,
+    language: str = "tr",
+) -> Path:
+    """
+    Render the report as a single, self-contained HTML page.
 
-
-def export_html(report: TrustReport, output_path: str | Path) -> Path:
-    """Render the report as a single, self-contained HTML page."""
-    data = report.to_dict()
+    *language* only sets the document's ``lang`` attribute. It is separate
+    from *translate* because the two answer different questions — what the
+    words are, and what a screen reader should be told they are — and getting
+    the second wrong is invisible to everyone who can see the page.
+    """
+    data = report.to_dict(translate)
     risk_level = (data.get("risk") or {}).get("level") or RiskLevel.UNKNOWN.value
     risk_color = _RISK_COLOR.get(risk_level, _RISK_COLOR[RiskLevel.UNKNOWN.value])
-    risk_label_tr = _RISK_TR.get(risk_level, "Bilinmiyor")
+    risk_label = translate(f"risk.badge.{risk_level}")
 
     summary = data.get("summary") or {}
     bullets_html = "".join(
@@ -125,24 +187,28 @@ def export_html(report: TrustReport, output_path: str | Path) -> Path:
 
     file_info = data.get("file") or {}
     file_rows = "".join(
-        f"<tr><th>{html.escape(label)}</th><td>{html.escape(str(file_info.get(key, '')))}</td></tr>"
-        for key, label in (
-            ("name", "Dosya Adı"),
-            ("path", "Tam Yol"),
-            ("size_human", "Boyut"),
-            ("extension", "Uzantı"),
-            ("created_at", "Oluşturulma"),
-            ("modified_at", "Son Değişiklik"),
+        f"<tr><th>{html.escape(translate(label_key))}</th>"
+        f"<td>{html.escape(str(file_info.get(key, '')))}</td></tr>"
+        for key, label_key in (
+            ("name", "trust.file.name"),
+            ("path", "trust.file.path"),
+            ("size_human", "trust.file.size"),
+            ("extension", "trust.file.extension"),
+            ("created_at", "trust.file.created"),
+            ("modified_at", "trust.file.modified"),
         )
     )
 
     vt = data.get("virustotal") or {}
-    vt_html = _render_vt_html(vt)
+    vt_html = _render_vt_html(vt, translate)
     sig = data.get("signature") or {}
-    sig_html = _render_signature_html(sig)
+    sig_html = _render_signature_html(sig, translate)
     local = data.get("local_record") or {}
-    local_html = _render_local_html(local)
+    local_html = _render_local_html(local, translate)
 
+    empty_factors = (
+        f'<li class="muted">{html.escape(translate("report.doc.no_factors"))}</li>'
+    )
     factors = ((data.get("risk") or {}).get("factors") or [])
     factors_html = "".join(
         f"<li class='sev-{html.escape(str(f.get('severity', 'info')))}'>"
@@ -153,10 +219,10 @@ def export_html(report: TrustReport, output_path: str | Path) -> Path:
     )
 
     html_doc = f"""<!doctype html>
-<html lang="tr">
+<html lang="{html.escape(language)}">
 <head>
 <meta charset="utf-8">
-<title>Dosya Güven Raporu — {html.escape(str(file_info.get('name', '')))}</title>
+<title>{html.escape(translate("report.doc.title"))} — {html.escape(str(file_info.get('name', '')))}</title>
 <style>
   * {{ box-sizing: border-box; }}
   body {{ font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 32px; background:#f5f6f8; color:#222; }}
@@ -185,42 +251,42 @@ def export_html(report: TrustReport, output_path: str | Path) -> Path:
 </head>
 <body>
 <div class="card">
-  <h1>Dosya Güven Raporu</h1>
-  <p class="muted">Oluşturulma: {html.escape(str(data.get('generated_at', '')))}</p>
-  <p class="risk-badge">{html.escape(risk_label_tr)}</p>
+  <h1>{html.escape(translate("report.doc.title"))}</h1>
+  <p class="muted">{html.escape(translate("report.doc.generated"))}: {html.escape(str(data.get('generated_at', '')))}</p>
+  <p class="risk-badge">{html.escape(risk_label)}</p>
   <p class="headline">{html.escape(str(summary.get('headline', '')))}</p>
   <ul>{bullets_html}</ul>
   <p class="advice">{html.escape(str(summary.get('advice', '')))}</p>
 </div>
 
 <div class="card">
-  <h2>Dosya Bilgileri</h2>
+  <h2>{html.escape(translate("report.doc.section.file"))}</h2>
   <table>{file_rows}</table>
 </div>
 
 <div class="card">
-  <h2>Hash Değerleri</h2>
+  <h2>{html.escape(translate("report.doc.section.hashes"))}</h2>
   <table>{hashes_rows}</table>
 </div>
 
 <div class="card">
-  <h2>VirusTotal</h2>
+  <h2>{html.escape(translate("report.doc.section.vt"))}</h2>
   {vt_html}
 </div>
 
 <div class="card">
-  <h2>Dijital İmza</h2>
+  <h2>{html.escape(translate("report.doc.section.signature"))}</h2>
   {sig_html}
 </div>
 
 <div class="card">
-  <h2>Yerel Kayıt</h2>
+  <h2>{html.escape(translate("report.doc.section.local"))}</h2>
   {local_html}
 </div>
 
 <div class="card">
-  <h2>Risk Faktörleri</h2>
-  <ul>{factors_html or '<li class="muted">Faktör listesi boş.</li>'}</ul>
+  <h2>{html.escape(translate("report.doc.section.factors"))}</h2>
+  <ul>{factors_html or empty_factors}</ul>
 </div>
 </body>
 </html>
@@ -232,54 +298,57 @@ def export_html(report: TrustReport, output_path: str | Path) -> Path:
         with path.open("w", encoding="utf-8") as fh:
             fh.write(html_doc)
     except OSError as exc:
-        raise TrustReportError(f"HTML rapor yazılamadı: {exc}") from exc
+        raise TrustReportError(translate("report.err.html", error=exc)) from exc
     return path
 
 
-def _render_vt_html(vt: dict[str, Any]) -> str:
+def _render_vt_html(vt: dict[str, Any], translate: Translate) -> str:
     if not vt:
-        return "<p class='muted'>Sorgu yapılmadı.</p>"
+        return f"<p class='muted'>{html.escape(translate('report.doc.not_queried'))}</p>"
     stats = vt.get("stats") or {}
     rows = [
-        ("Durum", html.escape(str(vt.get("status", "")))),
-        ("Zararlı (malicious)", str(stats.get("malicious", 0))),
-        ("Şüpheli (suspicious)", str(stats.get("suspicious", 0))),
-        ("Temiz (harmless)", str(stats.get("harmless", 0))),
-        ("Algılanmadı (undetected)", str(stats.get("undetected", 0))),
-        ("Toplam motor", str(vt.get("total_engines", 0))),
-        ("Son analiz", html.escape(str(vt.get("last_analysis_date") or "—"))),
-        ("İtibar (reputation)", str(vt.get("reputation") if vt.get("reputation") is not None else "—")),
-        ("Dosya türü tahmini", html.escape(str(vt.get("type_description") or "—"))),
-        ("Bilinen isim", html.escape(str(vt.get("meaningful_name") or "—"))),
-        ("Mesaj", html.escape(str(vt.get("message") or ""))),
+        (translate("kv.status"), html.escape(str(vt.get("status", "")))),
+        (translate("trust.vt.malicious"), str(stats.get("malicious", 0))),
+        (translate("trust.vt.suspicious"), str(stats.get("suspicious", 0))),
+        (translate("trust.vt.harmless"), str(stats.get("harmless", 0))),
+        (translate("trust.vt.undetected"), str(stats.get("undetected", 0))),
+        (translate("trust.vt.total_engines"), str(vt.get("total_engines", 0))),
+        (translate("trust.vt.last_analysis"), html.escape(str(vt.get("last_analysis_date") or "—"))),
+        (translate("trust.vt.reputation"), str(vt.get("reputation") if vt.get("reputation") is not None else "—")),
+        (translate("trust.vt.type_description"), html.escape(str(vt.get("type_description") or "—"))),
+        (translate("trust.vt.meaningful_name"), html.escape(str(vt.get("meaningful_name") or "—"))),
+        (translate("report.doc.message"), html.escape(str(vt.get("message") or ""))),
     ]
     return "<table>" + "".join(
-        f"<tr><th>{label}</th><td>{value}</td></tr>" for label, value in rows
+        f"<tr><th>{html.escape(label)}</th><td>{value}</td></tr>"
+        for label, value in rows
     ) + "</table>"
 
 
-def _render_signature_html(sig: dict[str, Any]) -> str:
+def _render_signature_html(sig: dict[str, Any], translate: Translate) -> str:
     if not sig:
-        return "<p class='muted'>Kontrol yapılmadı.</p>"
+        return f"<p class='muted'>{html.escape(translate('report.doc.not_checked'))}</p>"
     rows = [
-        ("Durum", html.escape(str(sig.get("status", "")))),
-        ("İmzalayan", html.escape(str(sig.get("signer") or "—"))),
-        ("Açıklama", html.escape(str(sig.get("message") or "—"))),
+        (translate("kv.status"), html.escape(str(sig.get("status", "")))),
+        (translate("trust.sig.signer"), html.escape(str(sig.get("signer") or "—"))),
+        (translate("kv.detail"), html.escape(str(sig.get("message") or "—"))),
     ]
     return "<table>" + "".join(
-        f"<tr><th>{label}</th><td>{value}</td></tr>" for label, value in rows
+        f"<tr><th>{html.escape(label)}</th><td>{value}</td></tr>"
+        for label, value in rows
     ) + "</table>"
 
 
-def _render_local_html(local: dict[str, Any]) -> str:
+def _render_local_html(local: dict[str, Any], translate: Translate) -> str:
     if not local:
-        return "<p class='muted'>Yerel kayıt yok.</p>"
+        return f"<p class='muted'>{html.escape(translate('report.doc.no_local'))}</p>"
     rows = [
-        ("Durum", html.escape(str(local.get("status", "")))),
-        ("Açıklama", html.escape(str(local.get("message") or ""))),
-        ("Önceki hash", html.escape(str(local.get("previous_hash") or "—"))),
-        ("Şimdiki hash", html.escape(str(local.get("current_hash") or "—"))),
+        (translate("kv.status"), html.escape(str(local.get("status", "")))),
+        (translate("kv.detail"), html.escape(str(local.get("message") or ""))),
+        (translate("trust.local.previous_hash"), html.escape(str(local.get("previous_hash") or "—"))),
+        (translate("trust.local.current_hash"), html.escape(str(local.get("current_hash") or "—"))),
     ]
     return "<table>" + "".join(
-        f"<tr><th>{label}</th><td>{value}</td></tr>" for label, value in rows
+        f"<tr><th>{html.escape(label)}</th><td>{value}</td></tr>"
+        for label, value in rows
     ) + "</table>"

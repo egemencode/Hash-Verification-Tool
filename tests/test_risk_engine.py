@@ -77,9 +77,9 @@ class RiskEngineTests(unittest.TestCase):
             signature_result=SignatureResult(status=SignatureStatus.UNSIGNED),
             local_result=None,
         )
-        labels = [f.label for f in result.factors]
-        self.assertIn("VirusTotal", labels)
-        self.assertIn("Dijital İmza", labels)
+        labels = [f.label.key for f in result.factors]
+        self.assertIn("factor.name.virustotal", labels)
+        self.assertIn("factor.name.signature", labels)
 
 
 if __name__ == "__main__":

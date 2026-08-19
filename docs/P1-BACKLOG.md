@@ -314,7 +314,7 @@ Windows'un koyu modunu izlemiyor).
 **Yapılacak:** İkinci palet + Windows tema algılama + `_apply_style` içinde
 uygulama. Kontrast testi ikinci paleti de yürüyecek şekilde genişletilmeli.
 
-## 11. Sonuç metni çekirdekten geliyor ve hâlâ tek dilli
+## 11. ~~Sonuç metni çekirdekten geliyor ve hâlâ tek dilli~~ — HÜKÜM KAPANDI
 
 Üç varsayılan ekranın **kendi yazdığı** her dize `t()` üzerinden geçiyor
 (bkz. `tests/test_gui_language_coverage.py`). Ama ekranın asıl cümlesini —
@@ -327,17 +327,90 @@ güven rozetlerinde (`gui/trust_presenter.py`) geçerli.
 Yani İngilizce seçen bir kullanıcı artık bütün arayüzü İngilizce görüyor ama
 tarama bitince **verdiği kararı Türkçe okuyor**.
 
-Bu turda kapsam dışı bırakılmasının sebebi iş yükü değil, karar:
+### ⚠️ Düzeltme (2026-08-19): bu maddenin ilk gerekçesi yanlıştı
 
-- Bu cümleler **CLI ile ortak**. Çekirdeği `t()` çağıracak hâle getirmek, dil
-  durumunu (şu an GUI'ye ait modül düzeyinde bir değişken) çekirdeğe taşımak
-  demek — komut satırının diline de o karar veriyor olurdu.
-- Diğer seçenek, çekirdeğin metin yerine **anahtar döndürmesi** ve sunum
-  katmanının çevirmesi. Daha temiz ama `RiskSummary`'nin genel arayüzünü
-  değiştiriyor; `core/trust_report.py`'nin ürettiği HTML/JSON raporları ve
-  onları tüketen testler de etkileniyor.
+İlk yazılışında *"bu cümleler **CLI ile ortak**, o yüzden çevirmek dil durumunu
+çekirdeğe taşımak demek"* deniyordu. **Ölçüldü, doğru değil:**
 
-**Yapılacak:** İkisi arasında bir seçim yap ve gerekçesini yaz; sonra
-`ViewAuthoredLabelTests` ile aynı biçimde — iki dilde üretip aynı olmadığını
-iddia eden davranış testleriyle — uygula. Bitene kadar dil menüsünün vaadi
-tam karşılanmış sayılmaz.
+```
+main.py -> trust_pipeline | trust_report | smart_summary | risk_engine  : hicbiri
+```
+
+`main.py` bu dört modülün hiçbirini import etmiyor. `build_summary` yalnız
+`core/trust_pipeline.py` (GUI'nin tarama hattı) ve `core/trust_report.py`
+(GUI'nin rapor dışa aktarımı) tarafından çağrılıyor. Yani **güven kontrolü
+hattının tamamı grafik arayüze ait**; komut satırı `hash_utils`,
+`manifest_manager`, `verifier`, `reporter`, `scan_policy` ve `key_files`
+üzerinden gidiyor. Ortaklık iddiası uydurmaydı ve bu maddeyi olduğundan pahalı
+gösteriyordu.
+
+Ölçülen gerçek büyüklük:
+
+| Yer | Türkçe dize satırı |
+|---|---|
+| `core/smart_summary.py` | 38 |
+| `core/risk_engine.py` | 39 |
+| `core/baseline.py` | 11 |
+| `core/local_verify.py` | 16 |
+| `gui/trust_presenter.py` | 26 |
+
+Türkçe proza dayanan test satırı: `test_gui_wiring.py` 13, diğerlerinde 1–2.
+
+### Seçilen yol (uygulanmadı, gerekçe yazıldı)
+
+**Çekirdek metin değil, anahtar döndürsün; sunum katmanı çevirsin.** Sebep,
+kod tabanının kendi damarı: `gui/trust_presenter.py` zaten *"karar kuralları
+ile ifadeyi ayır"* diye var ve docstring'i bunu söylüyor. `core/risk_engine.py`
+de bir puan değil bir karar tablosu. Çekirdeğin `t()` çağırması, sunumu
+çekirdeğe geri sokardı.
+
+Bedeli dürüstçe: `SmartSummary.bullets` düz metin listesi olmaktan çıkıp
+(anahtar, parametre) taşır; `as_text()` bir render'a ihtiyaç duyar;
+`core/trust_report.py`'nin ürettiği HTML/JSON rapor da render edilmiş metni
+almak zorundadır.
+
+### ✔ Uygulandı (§7)
+
+`core/phrases.py` eklendi: bir `Phrase`, cümlenin **kimliği** artı içine giren
+değerler. Hangi cümlenin doğru olduğuna çekirdek karar veriyor, kelimeleri
+`gui/trust_presenter.py` seçiyor.
+
+Kapsanan yüzey:
+
+- `core/risk_engine.py` — risk başlığı **ve bütün kanıt satırları** (faktör
+  adı + açıklaması). Artık içinde tek bir Türkçe dize yok.
+- `core/smart_summary.py` — özet maddeleri ve öğüt satırı. `as_text()`
+  **kaldırıldı**: bir özeti düz metne indirgemek dil seçmeyi gerektirir ve bu
+  modül tam da onu yapmamalı. Karşılığı `RenderedSummary.as_text()`.
+- `gui/trust_presenter.py` — manifest güven rozetleri ve doğrulama başlıkları
+  (modül düzeyinde sabit tablo olduğu için aynı "import anında donma" kusuru
+  vardı, anahtara çevrildi) + başlangıç uyarısı.
+- `core/trust_report.py` — JSON ve HTML raporun tamamı, belgenin `lang`
+  niteliği dâhil. `to_dict`, `export_json` ve `export_html` artık bir
+  `translate` çağrılabiliri **zorunlu** alıyor; varsayılan bırakmak, sessizce
+  `risk.headline.high` ile dolu geçerli bir belge üretirdi ve kimse fark etmezdi.
+
+Raporda her bulgu **iki yazımla** duruyor: insanın okuduğu kelimeler ve
+programın eşleştirebileceği anahtar (`detail_key`, `headline_key`). Çevrilmiş
+bir cümle kararlı bir tanımlayıcı değildir.
+
+Testler: `tests/test_verdict_language.py` (6). Ayrıca prozeye bakan **sekiz
+mevcut test anahtara bakacak şekilde güçlendirildi** — anahtar "hangi kararı
+verdi"yi söyler, alt dize eşleşmesi yalnızca "metinde şu kelime geçti"yi.
+`test_vt_freshness` bunun en belirgin örneğiydi: üç Türkçe kelimeden herhangi
+biri *herhangi bir* maddede geçse geçiyordu.
+
+### ✖ Kalan (§7B): diyalog ve ayrıntı metni
+
+Hüküm çevrildi; şu üç modül hâlâ tek dilli ve **ekranda görünüyor**:
+
+| Modül | Nerede görünüyor |
+|---|---|
+| `core/baseline.py` | "Parmak İzini Kaydet" onay/red diyalogları (5 metin) |
+| `core/local_verify.py` | Yerel Kayıt sekmesindeki *Açıklama* satırı, kaydetme sonucu |
+| `core/file_info.py` | Tarama başarısız diyalogundaki hata metni |
+
+Bunlar özetin parçası değil (özet kendi cümlelerini durum enum'undan kuruyor),
+o yüzden hüküm sınırında durup ayrı madde yapıldı. Aynı `Phrase` biçimi
+uygulanabilir; `LocalVerifyResult.message` düz `str` olduğu için orada tip
+değişikliği gerekiyor.

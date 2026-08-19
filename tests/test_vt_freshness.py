@@ -142,11 +142,16 @@ class RiskIntegrationTests(unittest.TestCase):
     def test_undated_summary_does_not_reassure(self) -> None:
         r = _lookup({"last_analysis_stats": _stats(undetected=70)})
         summary = build_summary(assess(vt_result=r), vt=r)
-        text = " ".join(summary.bullets).lower()
+        keys = [b.key for b in summary.bullets]
         # It must qualify the result rather than presenting a bare "no flags".
+        # Stated as "which sentence" rather than "which words": the previous
+        # version passed if any of three Turkish words appeared anywhere, which
+        # an unrelated bullet could have satisfied on its own.
+        self.assertNotIn("summary.vt.clean", keys, f"bullets were: {keys}")
         self.assertTrue(
-            ("belirsiz" in text) or ("eski" in text) or ("güncel" in text),
-            f"bullets were: {summary.bullets}",
+            {"summary.vt.clean_but_stale", "summary.vt.clean_but_undated"}
+            & set(keys),
+            f"bullets were: {keys}",
         )
 
 

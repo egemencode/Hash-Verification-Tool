@@ -98,11 +98,28 @@ the verdict won.
   the one statement that now exists in two places, and a test holds the Turkish
   copy identical to the one `core/trust_pipeline.py` states.
 
-  Result text authored by the core — the risk summary's headline, bullets and
-  advice, the baseline prompts, the local-record and signature messages — is
-  still Turkish in both languages. Those sentences are shared with the CLI, so
-  translating them is an interface decision rather than a substitution, and it
-  is recorded as its own item rather than half-done here.
+- **The verdict itself now reads in the chosen language.** Translating the
+  screens left the sentence the tool exists to produce — the headline above the
+  risk badge, the bullets under it, the advice line and the evidence rows —
+  composed in Turkish by `core/risk_engine.py` and `core/smart_summary.py`. An
+  English user got an English interface and a Turkish judgement.
+
+  The core still does not translate. It returns a `core.phrases.Phrase`: which
+  sentence is true, plus the values that belong in it. The words are chosen by
+  the presentation layer, which is the one that already knows the language.
+  That keeps the split the codebase was built around — `gui/trust_presenter.py`
+  exists so the wording and the decision rules can be tested apart, and the
+  risk engine is a decision table rather than a score.
+
+  Exported reports follow: JSON and HTML are written in the language the user
+  was working in, down to the document's `lang` attribute, and every finding
+  carries both spellings — the words a person reads and the key a program can
+  match on, because a translated sentence is not a stable identifier.
+
+  Still Turkish in both languages, and recorded rather than half-done: the
+  baseline prompts (`core/baseline.py`), the local-record messages
+  (`core/local_verify.py`) and the file-access errors (`core/file_info.py`).
+  Those are dialogue and detail text rather than the verdict.
 
 ### Changed
 - **The window is built on `clam` instead of `vista`.** `vista` is what Tk
@@ -134,6 +151,17 @@ the verdict won.
   migrated and scrubbed.
 
 ### Fixed
+- **Part of the verdict was hidden at the smallest window size.** The summary
+  bullets sat in a box four lines tall, and Tk does not report the lines that
+  do not fit — it stops drawing them, with nothing on screen to say so. At the
+  880-pixel minimum the window allows, the longest summary lost one line in
+  Turkish and two in English. What went missing was not decoration: the
+  bullets are the evidence for the risk level above them, so the screen showed
+  a verdict while withholding part of the reason for it. The box now grows to
+  what the sentences need and re-measures when the window is resized. Found by
+  measuring the rendered card rather than by reading the code — the suite, the
+  gate and the coverage harness all passed while it was there, because none of
+  them makes the window small and looks.
 - **A finished Hash / Verify / Report run could be discarded silently.** The
   poll drained the worker's queue and then asked whether the thread was still
   alive. The worker queues its terminal message and *then* returns, so a drain
@@ -243,7 +271,7 @@ the verdict won.
   no PATH fallback, no `-ExecutionPolicy Bypass`.
 
 ### Tests
-- 37 → 589, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
+- 37 → 596, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
   `PYTHONIOENCODING` unset, and under explicit UTF-8.
 - `tools/verify_fix_coverage.py` reverts each fix in a scratch copy and requires
   the test that claims to cover it to fail, so a test that asserts nothing is

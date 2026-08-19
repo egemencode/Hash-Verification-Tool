@@ -29,7 +29,8 @@ from core.local_verify import LocalStoreError, LocalVerifyStatus, LocalVerifySto
 from core.scan_controller import ScanCancelled, ScanController, ScanState
 from core.risk_engine import RiskLevel
 from gui import theme
-from gui.i18n import t
+from gui.i18n import get_language, t
+from gui.trust_presenter import render_summary
 from core.signature_checker import SignatureStatus
 from core.trust_pipeline import (
     TrustResult,
@@ -340,6 +341,11 @@ class TrustCheckView(ttk.Frame):
         )
         self.bullets_text.grid(row=1, column=1, sticky="ew", pady=(8, 8))
         self.bullets_text.configure(state="disabled")
+        # Narrowing the window re-wraps the sentences, so what fits changes
+        # with it. Width only: reacting to height would have this handler
+        # answer the event its own resize produces.
+        self._bullets_width = 0
+        self.bullets_text.bind("<Configure>", self._on_bullets_resized)
 
         self.advice_var = tk.StringVar(value="")
         ttk.Label(
@@ -859,15 +865,19 @@ class TrustCheckView(ttk.Frame):
         color, label = risk_presentation(level)
         self._draw_badge(color, label)
 
-        self.headline_var.set(summary.headline if summary else "")
+        # The core decided which sentences are true; the words are chosen here,
+        # at the moment of display, so a language switch is not a scan away.
+        said = render_summary(summary) if summary else None
+        self.headline_var.set(said.headline if said else "")
 
         self.bullets_text.configure(state="normal")
         self.bullets_text.delete("1.0", "end")
-        if summary:
-            for bullet in summary.bullets:
+        if said:
+            for bullet in said.bullets:
                 self.bullets_text.insert("end", f"• {bullet}\n")
         self.bullets_text.configure(state="disabled")
-        self.advice_var.set(summary.advice if summary else "")
+        self._fit_bullets()
+        self.advice_var.set(said.advice if said else "")
 
         self._render_file_info(result)
         self._render_hashes(result)
@@ -876,6 +886,41 @@ class TrustCheckView(ttk.Frame):
         self._render_local(result)
 
         self._record_in_history(result)
+
+    # Enough room for the shortest summary; grown by _fit_bullets when the
+    # sentences need more. Never shrunk below this, so the card does not
+    # jump about between scans.
+    _BULLET_LINES_MIN = 4
+
+    def _fit_bullets(self) -> None:
+        """
+        Grow the bullet box to whatever the sentences actually need.
+
+        A fixed height is a guess about how long a verdict will be, and Tk
+        does not report the lines that do not fit — it stops drawing them,
+        with nothing on screen to say so. At the 880-pixel minimum this window
+        allows, the longest summary lost one line in Turkish and two in
+        English. What goes missing is not decoration: the bullets are the
+        evidence for the risk level above them, so the screen was showing a
+        verdict while withholding part of the reason for it.
+
+        Measured after the text is in place rather than estimated from
+        character counts, because what matters is how the widget wrapped it at
+        this width — which is also why it re-runs when the window resizes.
+        """
+        box = self.bullets_text
+        box.update_idletasks()
+        try:
+            counted = box.count("1.0", "end", "displaylines")
+        except tk.TclError:  # pragma: no cover - widget already gone
+            return
+        wrapped = counted[0] if counted else 0
+        box.configure(height=max(self._BULLET_LINES_MIN, wrapped))
+
+    def _on_bullets_resized(self, event) -> None:
+        if event.width != self._bullets_width:
+            self._bullets_width = event.width
+            self._fit_bullets()
 
     def _record_in_history(self, result: TrustResult) -> None:
         if not result.summary or not result.assessment:
@@ -888,7 +933,10 @@ class TrustCheckView(ttk.Frame):
                 file_path=result.file_info.path,
                 sha256=result.sha256,
                 risk_level=result.summary.risk_level.value,
-                headline=result.summary.headline,
+                # Words, not a key: the history file is a record of what the
+                # user was told at the time, and re-rendering it later in
+                # another language would rewrite that record.
+                headline=render_summary(result.summary).headline,
                 vt_malicious=vt.stats.malicious if (vt and vt.status == VTStatus.OK) else 0,
                 vt_suspicious=vt.stats.suspicious if (vt and vt.status == VTStatus.OK) else 0,
                 vt_status=vt.status.value if vt else "",
@@ -1133,9 +1181,9 @@ class TrustCheckView(ttk.Frame):
         report = self._last_result.to_report()
         try:
             if fmt == "json":
-                export_json(report, path)
+                export_json(report, path, translate=t)
             else:
-                export_html(report, path)
+                export_html(report, path, translate=t, language=get_language())
         except TrustReportError as exc:
             messagebox.showerror(t("trust.export.error_title"), str(exc))
             return
@@ -1152,6 +1200,9 @@ class TrustCheckView(ttk.Frame):
         self.bullets_text.configure(state="normal")
         self.bullets_text.delete("1.0", "end")
         self.bullets_text.configure(state="disabled")
+        # Back to the minimum: a box still tall enough for the last scan's
+        # sentences, with nothing in it, reads as something failing to load.
+        self.bullets_text.configure(height=self._BULLET_LINES_MIN)
         self.advice_var.set("")
         self._sha256_entry.state(["!readonly"])
         self.sha256_var.set("—")

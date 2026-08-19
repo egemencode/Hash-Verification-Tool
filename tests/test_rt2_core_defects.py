@@ -99,18 +99,22 @@ class AllCountersStrictTests(unittest.TestCase):
 class SummaryUsesAnalysingEnginesTests(unittest.TestCase):
     """A timeout-only answer must not be narrated as 'no engine flagged it'."""
 
+    # Asserted on the chosen sentence rather than on words inside it. The
+    # summary returns phrase keys now, and matching a key says "this is the
+    # claim it made" — a substring match only says the wording happened to
+    # contain a word, which a rephrasing or a translation would break without
+    # anything actually being wrong.
     def test_timeout_only_does_not_claim_no_detections(self) -> None:
         r = _lookup({"malicious": 0, "suspicious": 0, "harmless": 0,
                      "undetected": 0, "timeout": 70})
-        summary = build_summary(assess(r), vt=r)
-        text = " ".join(summary.bullets)
-        self.assertNotIn("zararlı veya şüpheli işareti gelmedi", text)
-        self.assertIn("motor", text.lower())
+        keys = [b.key for b in build_summary(assess(r), vt=r).bullets]
+        self.assertNotIn("summary.vt.clean", keys)
+        self.assertIn("summary.vt.no_usable_analysis", keys)
 
     def test_real_clean_result_still_says_no_detections(self) -> None:
         r = _lookup(_clean_stats())
-        text = " ".join(build_summary(assess(r), vt=r).bullets)
-        self.assertIn("zararlı veya şüpheli işareti gelmedi", text)
+        keys = [b.key for b in build_summary(assess(r), vt=r).bullets]
+        self.assertIn("summary.vt.clean", keys)
 
 
 # ======================================================================

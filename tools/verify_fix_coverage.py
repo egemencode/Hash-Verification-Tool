@@ -452,6 +452,47 @@ REVERTS = [
      "tests.test_gui_language_coverage.PrivacyNoticeTests"
      ".test_the_turkish_notice_is_the_one_the_pipeline_states"),
 
+    ("the whole verdict is visible, not just what fits",
+     "gui/views/trust_check_view.py",
+     "        box.configure(height=max(self._BULLET_LINES_MIN, wrapped))\n",
+     "        box.configure(height=self._BULLET_LINES_MIN)\n",
+     "tests.test_gui_language_coverage.SummaryFitTests"
+     ".test_the_longest_verdict_is_fully_visible"),
+
+    # --- the verdict speaks the chosen language ---------------------------
+    # Each revert is a missing key rather than a hard-coded sentence: t()
+    # falls back to the key itself, so the same string comes out in both
+    # languages — which is exactly the defect, and a realistic typo.
+    ("the headline is looked up", "core/risk_engine.py",
+     '    return phrase(f"risk.headline.{level.value}")\n',
+     '    return phrase(f"risk.headline_{level.value}")\n',
+     "tests.test_verdict_language.VerdictLanguageTests"
+     ".test_the_headline_reads_in_the_chosen_language"),
+
+    ("the advice line is looked up", "core/smart_summary.py",
+     '    return phrase(f"summary.advice.{level.value}")\n',
+     '    return phrase(f"summary.advice_{level.value}")\n',
+     "tests.test_verdict_language.VerdictLanguageTests"
+     ".test_the_advice_reads_in_the_chosen_language"),
+
+    ("every bullet is looked up", "core/smart_summary.py",
+     '            bullets.append(phrase("summary.local.changed"))\n',
+     '            bullets.append(phrase("summary.local_changed"))\n',
+     "tests.test_verdict_language.VerdictLanguageTests"
+     ".test_every_bullet_reads_in_the_chosen_language"),
+
+    ("every evidence row is looked up", "core/risk_engine.py",
+     '            _local_factor(phrase("factor.local.changed"), 40, "bad")\n',
+     '            _local_factor(phrase("factor.local_changed"), 40, "bad")\n',
+     "tests.test_verdict_language.VerdictLanguageTests"
+     ".test_the_evidence_rows_read_in_the_chosen_language"),
+
+    ("the exported report carries words, not keys", "core/trust_report.py",
+     "    return translate(phrase.key, **dict(phrase.params))\n",
+     "    return phrase.key\n",
+     "tests.test_verdict_language.ExportedReportLanguageTests"
+     ".test_the_exported_report_carries_words_not_keys"),
+
     # --- the worker handover window --------------------------------------
     ("a message queued as the thread exits is still read", "gui/app.py",
      "        if self._dispatch(worker.drain(), on_done, on_error, on_progress):\n"
