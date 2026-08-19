@@ -70,7 +70,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "hash.output": "Manifest output (optional):",
         "hash.sign_key": "Signing key (optional):",
         "hash.sign_key.hint": (
-            "A private key from `keygen`. It may not live inside the folder "
+            "A private key from keygen. It may not live inside the folder "
             "being scanned or next to the manifest it signs — anyone who "
             "receives those receives the key and can forge manifests. Share "
             "the matching .pub separately."
@@ -110,7 +110,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "verify.manifest": "Manifest JSON:",
         "verify.trusted_key": "Trusted key (optional):",
         "verify.trusted_key.hint": (
-            "A .pub file from `keygen`, or the raw hex. Without one a signature "
+            "A .pub file from keygen, or the raw hex. Without one a signature "
             "can only be checked against the manifest's own embedded key, which "
             "shows internal consistency — not who produced it."
         ),
@@ -214,7 +214,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "hash.output": "Manifest çıktısı (opsiyonel):",
         "hash.sign_key": "İmzalama anahtarı (opsiyonel):",
         "hash.sign_key.hint": (
-            "`keygen`'in ürettiği özel anahtar. Taranan klasörün içinde ya da "
+            "keygen'in ürettiği özel anahtar. Taranan klasörün içinde ya da "
             "imzaladığı manifestin yanında olamaz — onları alan herkes anahtarı "
             "da alır ve sizin adınıza manifest imzalayabilir. Eşleşen .pub "
             "dosyasını ayrı bir kanalla iletin."
@@ -254,7 +254,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "verify.manifest": "Manifest JSON:",
         "verify.trusted_key": "Güvenilen anahtar (opsiyonel):",
         "verify.trusted_key.hint": (
-            "`keygen`'in ürettiği .pub dosyası ya da ham hex. Bu olmadan imza "
+            "keygen'in ürettiği .pub dosyası ya da ham hex. Bu olmadan imza "
             "yalnızca manifestin kendi gömülü anahtarıyla doğrulanabilir; bu da "
             "içeriğin kendi içinde tutarlı olduğunu gösterir — kimin ürettiğini "
             "değil."

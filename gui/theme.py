@@ -44,10 +44,20 @@ restyle the application.
 ``tests/test_gui_theme_contrast.py`` recomputes every ratio from the WCAG
 formula, so this docstring cannot quietly become false.
 
+The chrome
+----------
+:func:`apply` also owns the ttk styling, so a colour and the ground it has to
+be legible against cannot be edited in separate files. That moved the surfaces
+from "whatever Windows paints" to "what this module chose", which quietly
+retired the test that used to compare the two — once the constant configures
+the ground, comparing them answers itself. What replaced it asks the question
+that still bites: is every widget on screen sitting on a ground somebody
+measured?
+
 Scope
 -----
-Light surface only. The palette is tuned against white and most of it falls
-under 3.5:1 on a dark ground, so supporting a dark theme is a separate piece of
+Light surface only. The palette is tuned for this ground and most of it falls
+under 3.5:1 on a dark one, so supporting a dark theme is a separate piece of
 work, not a switch to flip here — see docs/P1-BACKLOG.md.
 """
 
@@ -132,4 +142,134 @@ def text_colours() -> dict[str, str]:
         "DANGER": DANGER,
         "INFO": INFO,
         "TRACE": TRACE,
+    }
+
+
+# --- Chrome -----------------------------------------------------------
+# Surfaces the restyled theme paints. SURFACE / SURFACE_FIELD above are
+# asserted against these by a test, so the two cannot drift apart.
+_BORDER = "#e1e1e1"
+_BUTTON = "#fbfbfb"
+_BUTTON_ACTIVE = "#f0f0f0"
+
+# Disabled text. WCAG 1.4.3 exempts inactive controls from the contrast rule,
+# and deliberately so: a disabled button that reads as crisply as an enabled
+# one stops looking disabled. Recorded here rather than left unexplained,
+# because it is the one colour in this module below 4.5:1 (2.47:1).
+_DISABLED_TEXT = "#9a9a9a"
+
+# The single accented control per screen. Carries white text as a button
+# background (5.38:1) and is itself text on the selected tab (5.38:1 on the
+# field ground, 4.72:1 on the chrome) — both directions are checked by
+# tests/test_gui_theme_contrast.py.
+ACCENT = "#0f6cbd"
+ACCENT_ACTIVE = "#115ea3"   # hover only; 6.66:1 under white text
+
+
+def apply(root) -> None:
+    """
+    Put the window on the ``clam`` base and flatten it.
+
+    ``vista`` is the theme Tk reaches for on Windows, and it draws Windows
+    7-era chrome: cramped tabs, buttons with no real padding, and a primary
+    action distinguishable from the rest only by bold text. ``clam`` is the
+    one built-in base that takes styling, so the look is built on it rather
+    than inherited.
+
+    Falls back through the earlier chain if ``clam`` is missing, which keeps
+    the application openable on a stripped Tk rather than trading a visual
+    preference for a crash.
+    """
+    import tkinter as tk
+    from tkinter import ttk
+
+    style = ttk.Style(root)
+    # Not `theme`: that name is this module in the caller's namespace, and
+    # shadowing it once made every token lookup read off a string instead.
+    for theme_name in ("clam", "vista", "default"):
+        try:
+            style.theme_use(theme_name)
+            break
+        except tk.TclError:
+            continue
+
+    if style.theme_use() != "clam":
+        # Nothing below is meaningful on a theme that ignores it.
+        style.configure("Status.TLabel", padding=(8, 4))
+        style.configure("Accent.TButton", font=FONT_UI_BOLD)
+        return
+
+    style.configure(".", background=SURFACE, foreground=TEXT, font=FONT_UI,
+                    borderwidth=0, focuscolor=ACCENT)
+    style.configure("TFrame", background=SURFACE)
+    style.configure("TLabel", background=SURFACE, foreground=TEXT)
+    style.configure("TCheckbutton", background=SURFACE)
+    style.configure("TRadiobutton", background=SURFACE)
+    style.configure("TLabelframe", background=SURFACE, bordercolor=_BORDER,
+                    relief="solid", borderwidth=1)
+    style.configure("TLabelframe.Label", background=SURFACE, foreground=MUTED,
+                    font=FONT_LABEL_BOLD)
+
+    style.configure("TButton", background=_BUTTON, foreground=TEXT,
+                    bordercolor=_BORDER, relief="solid", borderwidth=1,
+                    padding=(14, 7))
+    style.map("TButton",
+              background=[("active", _BUTTON_ACTIVE), ("disabled", SURFACE)],
+              foreground=[("disabled", _DISABLED_TEXT)])
+    # Exactly one accented control per screen: an emphasis everything shares
+    # is not an emphasis.
+    style.configure("Accent.TButton", background=ACCENT, foreground="#ffffff",
+                    bordercolor=ACCENT, padding=(14, 7), font=FONT_UI_BOLD)
+    style.map("Accent.TButton",
+              background=[("active", ACCENT_ACTIVE), ("disabled", SURFACE)],
+              foreground=[("disabled", _DISABLED_TEXT)])
+
+    style.configure("TEntry", fieldbackground=SURFACE_FIELD,
+                    bordercolor=_BORDER, lightcolor=_BORDER,
+                    darkcolor=_BORDER, padding=5)
+    style.configure("TCombobox", fieldbackground=SURFACE_FIELD,
+                    bordercolor=_BORDER, padding=4)
+    # A readonly combobox keeps clam's grey field unless the map overrides it,
+    # which made the algorithm picker read as a disabled control.
+    style.map("TCombobox",
+              fieldbackground=[("readonly", SURFACE_FIELD)],
+              selectbackground=[("readonly", SURFACE_FIELD)],
+              selectforeground=[("readonly", TEXT)])
+    style.configure("TSpinbox", fieldbackground=SURFACE_FIELD,
+                    bordercolor=_BORDER, padding=4)
+
+    style.configure("TNotebook", background=SURFACE, borderwidth=0,
+                    tabmargins=(0, 6, 0, 0))
+    style.configure("TNotebook.Tab", background=SURFACE, bordercolor=SURFACE,
+                    padding=(18, 9), font=FONT_UI)
+    style.map("TNotebook.Tab",
+              background=[("selected", SURFACE_FIELD)],
+              foreground=[("selected", ACCENT)])
+
+    style.configure("Treeview", background=SURFACE_FIELD,
+                    fieldbackground=SURFACE_FIELD, bordercolor=_BORDER,
+                    rowheight=26)
+    style.configure("Treeview.Heading", background=SURFACE, relief="flat",
+                    font=FONT_LABEL_BOLD, padding=(6, 6))
+
+    style.configure("Status.TLabel", background=SURFACE, padding=(10, 6))
+    style.configure("TProgressbar", background=ACCENT, troughcolor="#e6e6e6",
+                    bordercolor="#e6e6e6", lightcolor=ACCENT, darkcolor=ACCENT)
+
+
+def text_grounds() -> dict[str, str]:
+    """
+    Every ground the interface draws text on.
+
+    Buttons are painted a shade off the surface, so a label on one sits on a
+    third colour that neither SURFACE nor SURFACE_FIELD describes. A widget
+    class nobody styled falls back to clam's default beige, which is not in
+    here — which is the point: a test walks the built window and fails on any
+    ground this does not name.
+    """
+    return {
+        "SURFACE": SURFACE,
+        "SURFACE_FIELD": SURFACE_FIELD,
+        "BUTTON": _BUTTON,
+        "BUTTON_ACTIVE": _BUTTON_ACTIVE,
     }

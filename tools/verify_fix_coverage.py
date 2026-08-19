@@ -323,11 +323,14 @@ REVERTS = [
     # The palette was first derived against white. ttk paints most of the
     # window with SystemButtonFace, so those ratios were upper bounds and two
     # colours shipped under AA. The surfaces are now read back from ttk.
-    ("theme surfaces match what ttk paints", "gui/theme.py",
-     "SURFACE = \"#f0f0f0\"",
-     "SURFACE = \"#ffffff\"",
+    # Putting a widget on a colour nobody measured. The root style gives ttk
+    # classes a safe default, so the failure this guards against is a chosen
+    # colour rather than a forgotten one.
+    ("every widget sits on a measured ground", "gui/theme.py",
+     "    style.configure(\"Treeview\", background=SURFACE_FIELD,\n",
+     "    style.configure(\"Treeview\", background=\"#dcdad5\",\n",
      "tests.test_gui_theme_contrast.BadgeCanvasTests"
-     ".test_the_theme_knows_what_the_toolkit_actually_paints"),
+     ".test_every_widget_sits_on_a_ground_the_palette_knows"),
 
     ("the report palette tracks the screen", "core/trust_report.py",
      "    RiskLevel.MEDIUM.value: \"#a74b00\",\n",
@@ -340,6 +343,20 @@ REVERTS = [
      "  .weight {{ color:#888; font-weight:400; }}",
      "tests.test_gui_theme_contrast.ReportPaletteTests"
      ".test_every_colour_the_report_sets_text_in_is_legible"),
+
+    # The chrome introduced a colour the palette walk cannot see: the accent
+    # is a button ground in one place and tab text in another.
+    ("the accent is legible both ways", "gui/theme.py",
+     "ACCENT = \"#0f6cbd\"",
+     "ACCENT = \"#7fb3e0\"",
+     "tests.test_gui_theme_contrast.ChromeContrastTests"
+     ".test_the_accent_is_legible_in_both_directions"),
+
+    ("button labels survive the button face", "gui/theme.py",
+     "_BUTTON = \"#fbfbfb\"",
+     "_BUTTON = \"#4a4a4a\"",
+     "tests.test_gui_theme_contrast.ChromeContrastTests"
+     ".test_body_text_survives_the_button_face"),
 
     ("GUI reports an underivable output path", "gui/app.py",
      "        except (ValueError, OSError) as exc:\n",

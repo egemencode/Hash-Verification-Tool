@@ -88,6 +88,15 @@ the verdict won.
   should fix a problem.
 
 ### Changed
+- **The window is built on `clam` instead of `vista`.** `vista` is what Tk
+  reaches for on Windows and it draws Windows 7-era chrome: cramped tabs,
+  buttons with no real padding, and a primary action distinguishable from the
+  rest only by bold text. The look is now built rather than inherited — flat
+  surfaces, one spacing step, a tab that shows which one is selected, and the
+  accent spent on exactly one control per screen. `gui/theme.py` owns both the
+  palette and the chrome, so a colour and the ground it must be legible against
+  cannot be edited in different files. If `clam` is missing the earlier chain
+  still applies: a visual preference is not worth failing to open over.
 - **Risk decisions are a monotonic table, not a score.** Any VirusTotal
   detection is at least MEDIUM, a hash mismatch is HIGH, and positive signals
   (a valid signature, a matching fingerprint) carry zero weight — they can no

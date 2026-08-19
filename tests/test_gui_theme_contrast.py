@@ -93,6 +93,45 @@ class ThemeContrastTests(unittest.TestCase):
                 )
 
 
+class ChromeContrastTests(unittest.TestCase):
+    """
+    The accent is text in one direction and a ground in the other.
+
+    ``text_colours()`` only walks the palette the views draw *with*, so a
+    colour introduced by the chrome — the accent on the primary button and on
+    the selected tab — would be invisible to every check above. That is the
+    same blind spot that let three illegible colours ship, one layer up.
+    """
+
+    def test_the_accent_is_legible_in_both_directions(self) -> None:
+        from gui import theme
+
+        pairs = [
+            ("white label on the primary button", "#ffffff", theme.ACCENT),
+            ("white label while hovered", "#ffffff", theme.ACCENT_ACTIVE),
+            ("selected tab label", theme.ACCENT, theme.SURFACE_FIELD),
+            ("accent on the chrome ground", theme.ACCENT, theme.SURFACE),
+        ]
+        for what, foreground, ground in pairs:
+            with self.subTest(pair=what):
+                ratio = contrast_ratio(foreground, ground)
+                self.assertGreaterEqual(
+                    ratio, AA_NORMAL_TEXT,
+                    f"{what}: {foreground} on {ground} is {ratio:.2f}:1",
+                )
+
+    def test_body_text_survives_the_button_face(self) -> None:
+        # Buttons are painted a shade off the surface, so the label sits on a
+        # ground none of the palette ratios were measured against.
+        from gui import theme
+
+        for name, ground in (("button", theme._BUTTON),          # noqa: SLF001
+                             ("button hovered", theme._BUTTON_ACTIVE)):  # noqa: SLF001
+            with self.subTest(ground=name):
+                ratio = contrast_ratio(theme.TEXT, ground)
+                self.assertGreaterEqual(ratio, AA_NORMAL_TEXT)
+
+
 class ReportPaletteTests(unittest.TestCase):
     """
     The exported HTML report is a third copy of the palette.
@@ -253,28 +292,54 @@ class BadgeCanvasTests(unittest.TestCase):
         r, g, b = self.app.winfo_rgb(name)
         return "#%02x%02x%02x" % (r // 257, g // 257, b // 257)
 
-    def test_the_theme_knows_what_the_toolkit_actually_paints(self) -> None:
-        # The whole palette is derived against these two values. The first
-        # version of this module simply asserted white, and ttk paints
-        # SystemButtonFace behind almost everything — so every ratio it
-        # reported was an upper bound and two colours shipped under AA. Read
-        # the surfaces back from the live style instead of trusting a constant.
+    def test_every_widget_sits_on_a_ground_the_palette_knows(self) -> None:
+        # The palette's ratios only mean anything against the grounds they
+        # were computed on. Once the application styles its own theme, asking
+        # "does SURFACE match what ttk reports?" answers itself — the constant
+        # *is* what ttk reports, because the constant configured it.
+        #
+        # What still has teeth is the other direction: is every widget on
+        # screen sitting on a ground somebody measured? The root style gives
+        # ttk classes a safe default, so this is not about forgetting to style
+        # one; it catches a widget deliberately put on a colour that was picked
+        # without checking it — including the plain tk widgets (canvases, text
+        # areas) that the ttk theme never touches.
+        import tkinter as tk
         import tkinter.ttk as ttk
 
         from gui import theme
 
         style = ttk.Style(self.app)
-        chrome = style.lookup("TFrame", "background")
-        field = style.lookup("Treeview", "background")
-        self.assertTrue(chrome and field, "ttk reported no background colours")
+        known = {v.lower() for v in theme.text_grounds().values()}
+        # The progress bar is a filled indicator, not a text ground.
+        known.add(theme.ACCENT.lower())
 
+        offenders: list[str] = []
+
+        def walk(widget) -> None:
+            cls = widget.winfo_class()
+            if cls.startswith("T") or cls == "Treeview":
+                raw = style.lookup(cls, "background")
+            else:
+                try:
+                    raw = widget.cget("bg")
+                except tk.TclError:
+                    raw = ""
+            if raw:
+                try:
+                    ground = self._hex(raw).lower()
+                except tk.TclError:
+                    ground = raw
+                if ground not in known:
+                    offenders.append(f"{cls} on {ground}")
+            for child in widget.winfo_children():
+                walk(child)
+
+        walk(self.app)
         self.assertEqual(
-            self._hex(chrome), theme.SURFACE,
-            "theme.SURFACE is not what ttk paints behind frames and labels",
-        )
-        self.assertEqual(
-            self._hex(field), theme.SURFACE_FIELD,
-            "theme.SURFACE_FIELD is not what ttk paints behind field widgets",
+            sorted(set(offenders)), [],
+            "these widgets sit on a ground no contrast ratio was measured "
+            "against, so the text on them is unchecked",
         )
 
     def test_the_badge_is_legible_in_every_state_it_draws(self) -> None:

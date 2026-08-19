@@ -246,18 +246,9 @@ class HashToolApp(tk.Tk):
     # Chrome
     # ------------------------------------------------------------------
     def _apply_style(self) -> None:
-        style = ttk.Style(self)
-        # Not `theme`: that name is the design-token module in this file's
-        # namespace, and shadowing it here made every token lookup below read
-        # off a string instead.
-        for theme_name in ("vista", "clam", "default"):
-            try:
-                style.theme_use(theme_name)
-                break
-            except tk.TclError:
-                continue
-        style.configure("Status.TLabel", padding=(8, 4))
-        style.configure("Accent.TButton", font=theme.FONT_UI_BOLD)
+        # The chrome lives with the tokens it is built from, so a colour and
+        # the surface it has to be legible against cannot be edited apart.
+        theme.apply(self)
 
     def _render_ui(self) -> None:
         """Build window title, menu, notebook and status bar from scratch."""
