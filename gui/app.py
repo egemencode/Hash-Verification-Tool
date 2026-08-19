@@ -499,7 +499,10 @@ class HashToolApp(tk.Tk):
         try:
             save_settings(self._settings)
         except SettingsError as exc:
-            messagebox.showwarning("Ayarlar", f"Dil tercihi kaydedilemedi: {exc}")
+            messagebox.showwarning(
+                t("settings.language.save_failed_title"),
+                t("settings.language.save_failed_body", error=exc),
+            )
 
         # Capture which tab was active so the user doesn't lose context.
         active = 0

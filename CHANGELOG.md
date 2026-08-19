@@ -86,6 +86,23 @@ the verdict won.
   than claiming the scan is already over, and the end-state card now gives
   cancel-specific advice instead of telling someone who chose to stop that they
   should fix a problem.
+- **The default screens now speak the language the menu offers.** Choosing
+  English translated the menu, the tab captions and the Advanced tabs, and left
+  everything under them in Turkish: Trust Check, History and Settings contained
+  no lookups at all between the three of them. The menu therefore described a
+  language the application did not have, which is the same defect as the
+  warning that once told users to press a "Remove key" button that did not
+  exist. All three screens are translated, including the strings they compute
+  rather than lay out — the risk badge, the signature and local-record
+  verdicts, the VirusTotal columns and every dialog. The privacy sentence is
+  the one statement that now exists in two places, and a test holds the Turkish
+  copy identical to the one `core/trust_pipeline.py` states.
+
+  Result text authored by the core — the risk summary's headline, bullets and
+  advice, the baseline prompts, the local-record and signature messages — is
+  still Turkish in both languages. Those sentences are shared with the CLI, so
+  translating them is an interface decision rather than a substitution, and it
+  is recorded as its own item rather than half-done here.
 
 ### Changed
 - **The window is built on `clam` instead of `vista`.** `vista` is what Tk
@@ -117,6 +134,14 @@ the verdict won.
   migrated and scrubbed.
 
 ### Fixed
+- **The drop-zone sentence lost its last word.** The label wrapped at a fixed
+  820 pixels while its column was narrower than that, and the failure mode of a
+  `wraplength` guess that is too generous is not "wraps late" — the text is
+  laid out as one long line and the container cuts it at its edge, with nothing
+  to say so. 86 pixels were missing in Turkish and 8 in English. It now wraps
+  at the width the layout actually gives it, which also survives a resize. The
+  English screen is what exposed this, but the language it hurt most was the
+  original one.
 - **Colours the interface drew text in were illegible.** Measured against white
   the neutral badge was 2.68:1 — the "Taranıyor…" state, on screen during every
   scan — with the medium-risk orange at 3.08:1 and the modified-file orange at
@@ -191,7 +216,7 @@ the verdict won.
   no PATH fallback, no `-ExecutionPolicy Bypass`.
 
 ### Tests
-- 37 → 530, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
+- 37 → 575, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
   `PYTHONIOENCODING` unset, and under explicit UTF-8.
 - `tools/verify_fix_coverage.py` reverts each fix in a scratch copy and requires
   the test that claims to cover it to fail, so a test that asserts nothing is

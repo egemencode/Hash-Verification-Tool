@@ -376,6 +376,82 @@ REVERTS = [
      "tests.test_gui_hash_policy.HashTabPolicyTests"
      ".test_single_file_output_over_the_input_is_refused"),
 
+    # --- i18n: the three default screens --------------------------------
+    ("Trust Check labels are looked up", "gui/views/trust_check_view.py",
+     'frame = ttk.LabelFrame(self, text=t("trust.section.pick"), padding=14)',
+     'frame = ttk.LabelFrame(self, text="1. Dosya Seçin", padding=14)',
+     "tests.test_gui_language_coverage.LanguageSwitchTests"
+     ".test_switching_to_english_leaves_no_turkish_on_screen"),
+
+    ("Settings labels are looked up", "gui/views/settings_view.py",
+     'ttk.Button(btns, text=t("settings.btn.save"), command=self._on_save,',
+     'ttk.Button(btns, text="Kaydet", command=self._on_save,',
+     "tests.test_gui_language_coverage.LanguageSwitchTests"
+     ".test_switching_to_english_leaves_no_turkish_on_screen"),
+
+    ("the end-state cards are looked up", "gui/views/trust_check_view.py",
+     '        if advice is None:\n            advice = t("trust.failure.advice")\n',
+     '        if advice is None:\n            advice = "Sorunu giderip tekrar deneyin."\n',
+     "tests.test_gui_language_coverage.LanguageSwitchTests"
+     ".test_the_end_state_cards_translate"),
+
+    ("the risk badge label is looked up", "gui/views/trust_check_view.py",
+     'RiskLevel.HIGH.value:    (theme.risk_colour(RiskLevel.HIGH.value), "risk.badge.high"),',
+     'RiskLevel.HIGH.value:    (theme.risk_colour(RiskLevel.HIGH.value), "Yüksek Risk"),',
+     "tests.test_gui_language_coverage.ViewAuthoredLabelTests"
+     ".test_the_risk_badge_label_translates"),
+
+    ("the history risk column is looked up", "gui/views/history_view.py",
+     '        return t(f"risk.level.{level}")\n',
+     '        return {"low": "Düşük", "medium": "Orta", "high": "Yüksek",\n'
+     '                "unknown": "Bilinmiyor"}[level]\n',
+     "tests.test_gui_language_coverage.ViewAuthoredLabelTests"
+     ".test_the_risk_level_column_translates"),
+
+    ("the history signature column is looked up", "gui/views/history_view.py",
+     '        return t(f"history.sig.{raw}")\n',
+     '        return {"signed_valid": "İmzalı (geçerli)",\n'
+     '                "signed_invalid": "İmzalı (geçersiz)",\n'
+     '                "unsigned": "İmza yok", "error": "Hata",\n'
+     '                "unknown": "Belirsiz"}[raw]\n',
+     "tests.test_gui_language_coverage.ViewAuthoredLabelTests"
+     ".test_the_signature_column_translates"),
+
+    ("the drop-zone sentence wraps instead of being cut",
+     "gui/views/trust_check_view.py",
+     '        file_label.grid(row=0, column=0, sticky="ew", padx=(0, 12))\n'
+     '        wrap_to_column(file_label)\n',
+     '        file_label.grid(row=0, column=0, sticky="ew", padx=(0, 12))\n'
+     '        file_label.configure(wraplength=820)\n',
+     "tests.test_gui_language_coverage.LanguageSwitchTests"
+     ".test_no_label_on_the_main_screen_is_cut_off"),
+
+    ("an unset wraplength does not kill the handler",
+     "gui/views/trust_check_view.py",
+     '        current = str(label.cget("wraplength")).strip() or "0"\n',
+     '        current = str(label.cget("wraplength"))\n',
+     "tests.test_gui_language_coverage.LanguageSwitchTests"
+     ".test_no_label_on_the_main_screen_is_cut_off"),
+
+    ("both languages define the same keys", "gui/i18n.py",
+     '        "btn.copy": "Kopyala",',
+     '        "btn.copy.tr_only": "Kopyala",',
+     "tests.test_gui_language_coverage.TranslationTableTests"
+     ".test_both_languages_define_the_same_keys"),
+
+    ("a translation keeps the values it was given", "gui/i18n.py",
+     '        "trust.invalid.body": "Bu yol bir dosyaya işaret etmiyor:\\n{path}",',
+     '        "trust.invalid.body": "Bu yol bir dosyaya işaret etmiyor.",',
+     "tests.test_gui_language_coverage.TranslationTableTests"
+     ".test_a_translation_keeps_every_placeholder_it_was_given"),
+
+    ("the privacy notice cannot drift from the pipeline",
+     "gui/i18n.py",
+     '            "Dosyanız yüklenmez. Yalnızca dosyanın SHA-256 özeti VirusTotal\'a "',
+     '            "Dosyanız yüklenmez. Yalnızca dosyanın SHA-256 ozeti VirusTotala "',
+     "tests.test_gui_language_coverage.PrivacyNoticeTests"
+     ".test_the_turkish_notice_is_the_one_the_pipeline_states"),
+
     ("single read for a single-file manifest", "main.py",
      "                args.file, algorithm=algo, ensure_stable=bool(args.output)\n",
      "                args.file, algorithm=algo, ensure_stable=False\n",

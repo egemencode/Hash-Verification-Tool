@@ -4,6 +4,11 @@ History tab — read-only view of past trust scans.
 Backed by :class:`core.history_manager.HistoryManager`. The Trust-Check
 view calls ``refresh()`` after each new scan so the user always sees
 the latest run at the top.
+
+Every label here goes through :func:`gui.i18n.t`. The column values in
+particular are computed per row rather than stored, so the lookup has to
+happen at render time — a table built once at import would freeze whichever
+language happened to be active when the module was first imported.
 """
 
 from __future__ import annotations
@@ -15,15 +20,39 @@ from typing import Callable, Optional
 from core.history_manager import HistoryEntry, HistoryManager, HistoryStoreError
 from core.risk_engine import RiskLevel
 from gui import theme
+from gui.i18n import t
 
 
-_LEVEL_LABEL = {
-    RiskLevel.LOW.value:     "Düşük",
-    RiskLevel.MEDIUM.value:  "Orta",
-    RiskLevel.HIGH.value:    "Yüksek",
-    RiskLevel.UNKNOWN.value: "Bilinmiyor",
-}
 _LEVEL_COLOR = {level.value: theme.risk_colour(level.value) for level in RiskLevel}
+
+
+def level_label(level: str) -> str:
+    """Risk level as a table cell — the short register, without "risk"."""
+    if level in {lv.value for lv in RiskLevel}:
+        return t(f"risk.level.{level}")
+    return level or "—"
+
+
+def signature_label(raw: str) -> str:
+    """
+    The signature column's own vocabulary.
+
+    Deliberately not shared with the Trust-Check screen's signature panel:
+    this column summarises into five buckets and has one line to do it in,
+    while the panel distinguishes eight states and can afford a sentence.
+    """
+    known = {
+        "signed_valid",
+        "signed_invalid",
+        "unsigned",
+        "error",
+        "unknown",
+    }
+    if raw in known:
+        return t(f"history.sig.{raw}")
+    if raw in ("unsupported", ""):
+        return "—"
+    return raw
 
 
 class HistoryView(ttk.Frame):
@@ -49,14 +78,14 @@ class HistoryView(ttk.Frame):
         header.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         ttk.Label(
             header,
-            text="Son taranan dosyalar (yeniden eskiye). Yeniden taramak için satıra çift tıklayın.",
+            text=t("history.header"),
             font=theme.FONT_UI_BOLD,
         ).pack(side="left")
 
         btns = ttk.Frame(header)
         btns.pack(side="right")
-        ttk.Button(btns, text="Yenile", command=self.refresh).pack(side="left")
-        ttk.Button(btns, text="Geçmişi Temizle", command=self._on_clear).pack(side="left", padx=(8, 0))
+        ttk.Button(btns, text=t("history.btn.refresh"), command=self.refresh).pack(side="left")
+        ttk.Button(btns, text=t("history.btn.clear"), command=self._on_clear).pack(side="left", padx=(8, 0))
 
         self.tree = ttk.Treeview(
             self,
@@ -64,15 +93,15 @@ class HistoryView(ttk.Frame):
             show="headings",
             height=18,
         )
-        for col, label, width, anchor in (
-            ("scanned_at", "Tarih", 150, "w"),
-            ("file_name", "Dosya", 200, "w"),
-            ("risk", "Risk", 90, "center"),
-            ("vt", "VirusTotal", 110, "center"),
-            ("signature", "İmza", 160, "w"),
-            ("path", "Yol", 400, "w"),
+        for col, width, anchor in (
+            ("scanned_at", 150, "w"),
+            ("file_name", 200, "w"),
+            ("risk", 90, "center"),
+            ("vt", 110, "center"),
+            ("signature", 160, "w"),
+            ("path", 400, "w"),
         ):
-            self.tree.heading(col, text=label)
+            self.tree.heading(col, text=t(f"history.col.{col}"))
             self.tree.column(col, width=width, anchor=anchor, stretch=(col == "path"))
 
         for level, color in _LEVEL_COLOR.items():
@@ -87,7 +116,7 @@ class HistoryView(ttk.Frame):
         self.tree.bind("<Double-1>", self._on_double_click)
 
         self.empty_label = ttk.Label(
-            self, text="Henüz tarama yapılmadı.", foreground=theme.MUTED
+            self, text=t("history.empty"), foreground=theme.MUTED
         )
 
     # ------------------------------------------------------------------
@@ -105,9 +134,9 @@ class HistoryView(ttk.Frame):
                 values=(
                     e.scanned_at,
                     e.file_name,
-                    _LEVEL_LABEL.get(e.risk_level, e.risk_level or "—"),
+                    level_label(e.risk_level),
                     _vt_label(e),
-                    _signature_label(e.signature_status),
+                    signature_label(e.signature_status),
                     e.file_path,
                 ),
                 tags=(f"risk-{e.risk_level}",),
@@ -116,8 +145,8 @@ class HistoryView(ttk.Frame):
     # ------------------------------------------------------------------
     def _on_clear(self) -> None:
         if not messagebox.askyesno(
-            "Geçmişi Temizle",
-            "Tüm tarama geçmişini silmek istediğinize emin misiniz?",
+            t("history.clear.title"),
+            t("history.clear.question"),
         ):
             return
         try:
@@ -125,7 +154,7 @@ class HistoryView(ttk.Frame):
         except HistoryStoreError as exc:
             # Do not blank the in-memory list if the disk write failed —
             # tell the user the history is still on disk.
-            messagebox.showerror("Geçmiş temizlenemedi", str(exc))
+            messagebox.showerror(t("history.clear.failed_title"), str(exc))
             self.refresh()
             return
         self.refresh()
@@ -141,33 +170,21 @@ class HistoryView(ttk.Frame):
         self._on_rescan_request(str(path))
 
 
-def _signature_label(raw: str) -> str:
-    return {
-        "signed_valid":   "İmzalı (geçerli)",
-        "signed_invalid": "İmzalı (geçersiz)",
-        "unsigned":       "İmza yok",
-        "unsupported":    "—",
-        "error":          "Hata",
-        "unknown":        "Belirsiz",
-        "":               "—",
-    }.get(raw, raw)
-
-
 def _vt_label(entry: HistoryEntry) -> str:
     """Human-readable VirusTotal column value."""
     if entry.vt_status == "ok":
         if entry.vt_malicious == 0 and entry.vt_suspicious == 0:
-            return "Temiz işaret yok"
+            return t("history.vt.clean")
         parts = []
         if entry.vt_malicious:
-            parts.append(f"{entry.vt_malicious} zararlı")
+            parts.append(t("history.vt.malicious", count=entry.vt_malicious))
         if entry.vt_suspicious:
-            parts.append(f"{entry.vt_suspicious} şüpheli")
+            parts.append(t("history.vt.suspicious", count=entry.vt_suspicious))
         return ", ".join(parts)
     if entry.vt_status == "not_found":
-        return "Bulunamadı"
+        return t("history.vt.not_found")
     if entry.vt_status == "no_api_key":
-        return "Anahtar yok"
+        return t("history.vt.no_key")
     if entry.vt_status in ("network_error", "unauthorized", "rate_limited", "error"):
-        return "Sorgulanamadı"
+        return t("history.vt.unavailable")
     return "—"

@@ -223,3 +223,31 @@ Windows'un koyu modunu izlemiyor).
 
 **Yapılacak:** İkinci palet + Windows tema algılama + `_apply_style` içinde
 uygulama. Kontrast testi ikinci paleti de yürüyecek şekilde genişletilmeli.
+
+## 11. Sonuç metni çekirdekten geliyor ve hâlâ tek dilli
+
+Üç varsayılan ekranın **kendi yazdığı** her dize `t()` üzerinden geçiyor
+(bkz. `tests/test_gui_language_coverage.py`). Ama ekranın asıl cümlesini —
+risk özetinin başlığını, maddelerini ve öğüdünü — ekran yazmıyor:
+`core/risk_engine.py` ve `core/smart_summary.py` üretiyor. Aynısı temel sürüm
+sorularında (`core/baseline.py`), yerel kayıt ve imza mesajlarında
+(`core/local_verify.py`, `core/signature_checker.py`) ve Doğrula sekmesinin
+güven rozetlerinde (`gui/trust_presenter.py`) geçerli.
+
+Yani İngilizce seçen bir kullanıcı artık bütün arayüzü İngilizce görüyor ama
+tarama bitince **verdiği kararı Türkçe okuyor**.
+
+Bu turda kapsam dışı bırakılmasının sebebi iş yükü değil, karar:
+
+- Bu cümleler **CLI ile ortak**. Çekirdeği `t()` çağıracak hâle getirmek, dil
+  durumunu (şu an GUI'ye ait modül düzeyinde bir değişken) çekirdeğe taşımak
+  demek — komut satırının diline de o karar veriyor olurdu.
+- Diğer seçenek, çekirdeğin metin yerine **anahtar döndürmesi** ve sunum
+  katmanının çevirmesi. Daha temiz ama `RiskSummary`'nin genel arayüzünü
+  değiştiriyor; `core/trust_report.py`'nin ürettiği HTML/JSON raporları ve
+  onları tüketen testler de etkileniyor.
+
+**Yapılacak:** İkisi arasında bir seçim yap ve gerekçesini yaz; sonra
+`ViewAuthoredLabelTests` ile aynı biçimde — iki dilde üretip aynı olmadığını
+iddia eden davranış testleriyle — uygula. Bitene kadar dil menüsünün vaadi
+tam karşılanmış sayılmaz.

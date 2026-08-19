@@ -14,8 +14,7 @@ from typing import Callable
 
 from core.vt_client import VirusTotalClient, VTStatus
 from gui import theme
-from gui.i18n import SUPPORTED_LANGUAGES
-from core.trust_pipeline import PRIVACY_NOTICE
+from gui.i18n import SUPPORTED_LANGUAGES, t
 from utils.settings import AppSettings, SettingsError
 
 
@@ -46,18 +45,16 @@ class SettingsView(ttk.Frame):
 
         ttk.Label(
             vt_frame,
-            text=(
-                "VirusTotal hesabınızdan ücretsiz bir API anahtarı alıp aşağıya yapıştırın.\n"
-                "Anahtar bu bilgisayarda, işletim sisteminin güvenli deposunda (DPAPI) saklanır.\n"
-                + PRIVACY_NOTICE + "\n"
-                "Çevrimiçi kontrol siz açana kadar kapalıdır."
-            ),
+            # The privacy sentence is substituted rather than concatenated so
+            # the surrounding paragraph can put it where its own grammar needs
+            # it; not every language keeps the same sentence order.
+            text=t("settings.vt.intro", privacy=t("privacy.notice")),
             justify="left",
             foreground=theme.TEXT,
             wraplength=720,
         ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
 
-        ttk.Label(vt_frame, text="API Anahtarı:").grid(row=1, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(vt_frame, text=t("settings.vt.api_key")).grid(row=1, column=0, sticky="w", pady=(0, 4))
         self.api_key_var = tk.StringVar(value=self._settings.virustotal_api_key)
         self._api_entry = ttk.Entry(
             vt_frame, textvariable=self.api_key_var, show="*", font=theme.FONT_MONO
@@ -66,13 +63,13 @@ class SettingsView(ttk.Frame):
 
         self._show_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
-            vt_frame, text="Göster", variable=self._show_var, command=self._toggle_visibility
+            vt_frame, text=t("settings.vt.show"), variable=self._show_var, command=self._toggle_visibility
         ).grid(row=1, column=2, sticky="w", pady=(0, 4))
 
         self.autoquery_var = tk.BooleanVar(value=self._settings.virustotal_autoquery)
         ttk.Checkbutton(
             vt_frame,
-            text="Tarama sırasında VirusTotal'a otomatik sor",
+            text=t("settings.vt.autoquery"),
             variable=self.autoquery_var,
         ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
@@ -82,13 +79,14 @@ class SettingsView(ttk.Frame):
         # destructive control on this screen should not sit under the button
         # the user reaches for by habit.
         self.remove_key_button = ttk.Button(
-            btns, text="Anahtarı Kaldır", command=self._on_remove_key
+            btns, text=t("settings.vt.remove"), command=self._on_remove_key
         )
         self.remove_key_button.pack(side="left")
-        ttk.Button(btns, text="Anahtarı Test Et", command=self._on_test).pack(
+        ttk.Button(btns, text=t("settings.vt.test"), command=self._on_test).pack(
             side="left", padx=(10, 0)
         )
-        ttk.Button(btns, text="Kaydet", command=self._on_save, style="Accent.TButton").pack(
+        ttk.Button(btns, text=t("settings.btn.save"), command=self._on_save,
+                   style="Accent.TButton").pack(
             side="left", padx=(10, 0)
         )
 
@@ -98,9 +96,9 @@ class SettingsView(ttk.Frame):
         )
 
         # --- History ----------------------------------------------------
-        hist_frame = ttk.LabelFrame(self, text="Geçmiş", padding=14)
+        hist_frame = ttk.LabelFrame(self, text=t("settings.history.title"), padding=14)
         hist_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 14))
-        ttk.Label(hist_frame, text="Geçmişte tutulacak en fazla kayıt sayısı:").grid(
+        ttk.Label(hist_frame, text=t("settings.history.limit")).grid(
             row=0, column=0, sticky="w"
         )
         self.history_limit_var = tk.IntVar(value=self._settings.history_limit)
@@ -110,18 +108,20 @@ class SettingsView(ttk.Frame):
         ).grid(row=0, column=1, sticky="w", padx=(10, 0))
 
         # --- Language ---------------------------------------------------
-        lang_frame = ttk.LabelFrame(self, text="Arayüz Dili", padding=14)
+        lang_frame = ttk.LabelFrame(self, text=t("settings.language.title"), padding=14)
         lang_frame.grid(row=2, column=0, columnspan=3, sticky="ew")
         self.language_var = tk.StringVar(value=self._settings.language)
         for code in SUPPORTED_LANGUAGES:
-            label = {"tr": "Türkçe", "en": "English"}.get(code, code)
+            # Shown in their own language so a user can find theirs without
+            # already being able to read the current one.
+            label = t(f"menu.language.{code}")
             ttk.Radiobutton(
                 lang_frame, text=label, value=code, variable=self.language_var
             ).pack(side="left", padx=(0, 12))
 
         ttk.Label(
             lang_frame,
-            text="Dil değişikliği “Kaydet” düğmesine bastıktan sonra hemen uygulanır.",
+            text=t("settings.language.hint"),
             foreground=theme.MUTED,
         ).pack(side="left", padx=(10, 0))
 
@@ -147,13 +147,15 @@ class SettingsView(ttk.Frame):
             # failed attempt leak into the running configuration: rebuild the
             # draft from the still-authoritative live settings.
             self._settings = self._live_settings.copy_for_edit()
-            messagebox.showerror("Ayarlar kaydedilemedi", str(exc))
+            messagebox.showerror(t("settings.save.failed_title"), str(exc))
             return
         # Only now does the draft become the live configuration.
         self._live_settings = self._settings
         self._on_settings_changed(self._settings)
         self._settings = self._live_settings.copy_for_edit()
-        messagebox.showinfo("Ayarlar Kaydedildi", "Ayarlarınız başarıyla kaydedildi.")
+        messagebox.showinfo(
+            t("settings.save.done_title"), t("settings.save.done_body")
+        )
 
     def _on_remove_key(self) -> None:
         """
@@ -168,10 +170,8 @@ class SettingsView(ttk.Frame):
         raises told them to choose "Anahtarı Kaldır".
         """
         if not messagebox.askyesno(
-            "Anahtarı Kaldır",
-            "Kayıtlı VirusTotal API anahtarı bu bilgisayardan silinecek.\n\n"
-            "Çevrimiçi kontrol, yeni bir anahtar girene kadar çalışmayacak.\n"
-            "Devam edilsin mi?",
+            t("settings.remove.title"),
+            t("settings.remove.question"),
             icon="warning",
             default="no",
         ):
@@ -184,25 +184,24 @@ class SettingsView(ttk.Frame):
             # Same discipline as _on_save: a failed write must not leak into
             # the running configuration, and must never be reported as done.
             self._settings = self._live_settings.copy_for_edit()
-            messagebox.showerror("Anahtar kaldırılamadı", str(exc))
+            messagebox.showerror(t("settings.remove.failed_title"), str(exc))
             return
 
         self._live_settings = self._settings
         self.api_key_var.set("")
-        self.test_status_var.set("Kayıtlı anahtar kaldırıldı.")
+        self.test_status_var.set(t("settings.remove.status"))
         self._on_settings_changed(self._settings)
         self._settings = self._live_settings.copy_for_edit()
         messagebox.showinfo(
-            "Anahtar Kaldırıldı",
-            "Kayıtlı VirusTotal API anahtarı silindi.",
+            t("settings.remove.done_title"), t("settings.remove.done_body")
         )
 
     def _on_test(self) -> None:
         key = self.api_key_var.get().strip()
         if not key:
-            self.test_status_var.set("Önce bir API anahtarı girin.")
+            self.test_status_var.set(t("settings.test.no_key"))
             return
-        self.test_status_var.set("VirusTotal anahtarı test ediliyor…")
+        self.test_status_var.set(t("settings.test.running"))
 
         def worker() -> None:
             client = VirusTotalClient(api_key=key, timeout=10.0)
@@ -217,12 +216,12 @@ class SettingsView(ttk.Frame):
 
     def _on_test_done(self, result) -> None:
         status_messages = {
-            VTStatus.OK:            "Anahtar geçerli görünüyor — test sorgusu başarılı.",
-            VTStatus.NOT_FOUND:     "Anahtar geçerli (test hash'i veritabanında değil — sorun değil).",
-            VTStatus.UNAUTHORIZED:  "Anahtar reddedildi. Anahtarınızı tekrar kontrol edin.",
-            VTStatus.RATE_LIMITED:  "Hız limitine takıldınız, biraz sonra deneyin.",
-            VTStatus.NETWORK_ERROR: "İnternete ulaşılamadı.",
-            VTStatus.NO_API_KEY:    "Bir API anahtarı girin.",
-            VTStatus.ERROR:         f"Bilinmeyen hata: {result.message}",
+            VTStatus.OK:            t("settings.test.ok"),
+            VTStatus.NOT_FOUND:     t("settings.test.not_found"),
+            VTStatus.UNAUTHORIZED:  t("settings.test.unauthorized"),
+            VTStatus.RATE_LIMITED:  t("settings.test.rate_limited"),
+            VTStatus.NETWORK_ERROR: t("settings.test.network_error"),
+            VTStatus.NO_API_KEY:    t("settings.test.missing"),
+            VTStatus.ERROR:         t("settings.test.error", error=result.message),
         }
         self.test_status_var.set(status_messages.get(result.status, result.message))

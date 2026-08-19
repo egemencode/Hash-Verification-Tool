@@ -384,7 +384,10 @@ class BadgeCanvasTests(unittest.TestCase):
 
         for level in _Level:
             with self.subTest(state=level.value):
-                colour, text = trust_check_view.RISK_PRESENTATION[level.value]
+                # Through the accessor, not the raw table: the table stores an
+                # i18n key, and drawing that instead of the label would check
+                # the contrast of a string no user ever sees.
+                colour, text = trust_check_view.risk_presentation(level.value)
                 self.app.trust_view._draw_badge(colour, text)   # noqa: SLF001
                 check(level.value)
 

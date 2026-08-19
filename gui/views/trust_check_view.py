@@ -29,9 +29,9 @@ from core.local_verify import LocalStoreError, LocalVerifyStatus, LocalVerifySto
 from core.scan_controller import ScanCancelled, ScanController, ScanState
 from core.risk_engine import RiskLevel
 from gui import theme
+from gui.i18n import t
 from core.signature_checker import SignatureStatus
 from core.trust_pipeline import (
-    PRIVACY_NOTICE,
     TrustResult,
     resolve_online_checks,
     run_trust_check,
@@ -97,12 +97,76 @@ def decode_dropped_path(raw: bytes | str) -> str:
     return raw.decode("mbcs", errors="replace")
 
 
-# Risk-level → (badge background, badge text)
+# Risk-level → (badge background, i18n key for the badge text).
+#
+# The key rather than the text: this table is built once at import, and a
+# label resolved here would be frozen in whichever language happened to be
+# active at that moment — which is not the language the user picks later.
 RISK_PRESENTATION: dict[str, tuple[str, str]] = {
-    RiskLevel.LOW.value:     (theme.risk_colour(RiskLevel.LOW.value), "Düşük Risk"),
-    RiskLevel.MEDIUM.value:  (theme.risk_colour(RiskLevel.MEDIUM.value), "Orta Risk"),
-    RiskLevel.HIGH.value:    (theme.risk_colour(RiskLevel.HIGH.value), "Yüksek Risk"),
-    RiskLevel.UNKNOWN.value: (theme.risk_colour(RiskLevel.UNKNOWN.value), "Bilinmiyor"),
+    RiskLevel.LOW.value:     (theme.risk_colour(RiskLevel.LOW.value), "risk.badge.low"),
+    RiskLevel.MEDIUM.value:  (theme.risk_colour(RiskLevel.MEDIUM.value), "risk.badge.medium"),
+    RiskLevel.HIGH.value:    (theme.risk_colour(RiskLevel.HIGH.value), "risk.badge.high"),
+    RiskLevel.UNKNOWN.value: (theme.risk_colour(RiskLevel.UNKNOWN.value), "risk.badge.unknown"),
+}
+
+
+def wrap_to_column(label: ttk.Label) -> None:
+    """
+    Wrap *label* at the width the layout gives it, not at a number picked once.
+
+    A fixed ``wraplength`` is a guess about how wide the column will turn out,
+    and the failure mode when the guess is too generous is not "wraps late" —
+    it is "does not wrap at all". Tk lays the text out as one long line and the
+    container simply cuts it at its edge, with no ellipsis to say so. The
+    drop-zone sentence shipped that way: 86 pixels of it were missing in
+    Turkish, 8 in English, and in both cases the word lost was the last one.
+
+    Binding to ``<Configure>`` follows the column instead of predicting it, so
+    it holds for a language whose sentence is longer and for a user who
+    resizes the window.
+    """
+    def on_configure(event) -> None:
+        # Guard both ways: a width of 1 is an unmapped widget, and re-setting
+        # the same value would have this handler answer its own event forever.
+        #
+        # An unset wraplength reads back as "", not 0, and int("") raises.
+        # That mattered more than it looks: the exception surfaced inside a Tk
+        # callback, where it is printed and swallowed, so the handler simply
+        # stopped doing its job and the label went on being cut off.
+        current = str(label.cget("wraplength")).strip() or "0"
+        if event.width > 1 and int(current) != event.width:
+            label.configure(wraplength=event.width)
+
+    label.bind("<Configure>", on_configure)
+
+
+def risk_presentation(level: str) -> tuple[str, str]:
+    """Badge colour and translated label for *level*."""
+    colour, key = RISK_PRESENTATION.get(
+        level, RISK_PRESENTATION[RiskLevel.UNKNOWN.value]
+    )
+    return colour, t(key)
+
+
+# Signature states the panel spells out. Unlike the History column's five
+# buckets this keeps every distinction the checker makes, because the panel
+# has room for a sentence and the column does not.
+_SIGNATURE_KEYS = {
+    SignatureStatus.SIGNED_VALID:   "trust.sig.signed_valid",
+    SignatureStatus.HASH_MISMATCH:  "trust.sig.hash_mismatch",
+    SignatureStatus.UNTRUSTED:      "trust.sig.untrusted",
+    SignatureStatus.UNSIGNED:       "trust.sig.unsigned",
+    SignatureStatus.NOT_APPLICABLE: "trust.sig.not_applicable",
+    SignatureStatus.UNKNOWN:        "trust.sig.unknown",
+    SignatureStatus.UNSUPPORTED:    "trust.sig.unsupported",
+    SignatureStatus.ERROR:          "trust.sig.error",
+}
+
+_LOCAL_KEYS = {
+    LocalVerifyStatus.SAME:        "trust.local.same",
+    LocalVerifyStatus.CHANGED:     "trust.local.changed",
+    LocalVerifyStatus.NEW:         "trust.local.new",
+    LocalVerifyStatus.NOT_TRACKED: "trust.local.not_tracked",
 }
 
 
@@ -162,27 +226,27 @@ class TrustCheckView(ttk.Frame):
 
     # --- Drop zone ----------------------------------------------------
     def _build_drop_zone(self, row: int) -> None:
-        frame = ttk.LabelFrame(self, text="1. Dosya Seçin", padding=14)
+        frame = ttk.LabelFrame(self, text=t("trust.section.pick"), padding=14)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         frame.columnconfigure(0, weight=1)
 
-        self.file_label_var = tk.StringVar(
-            value="Henüz dosya seçilmedi. Sağdaki düğmeyi kullanın veya dosyayı pencereye sürükleyin."
-        )
-        ttk.Label(
+        self.file_label_var = tk.StringVar(value=t("trust.no_file"))
+        file_label = ttk.Label(
             frame,
             textvariable=self.file_label_var,
-            wraplength=820,
             justify="left",
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 12))
+        )
+        file_label.grid(row=0, column=0, sticky="ew", padx=(0, 12))
+        wrap_to_column(file_label)
 
         btns = ttk.Frame(frame)
         btns.grid(row=0, column=1, sticky="e")
         ttk.Button(
-            btns, text="Dosya Seç…", command=self._pick_file, style="Accent.TButton"
+            btns, text=t("trust.btn.pick"), command=self._pick_file,
+            style="Accent.TButton",
         ).pack(side="left")
         self.scan_button = ttk.Button(
-            btns, text="Taramayı Başlat", command=self._on_scan
+            btns, text=t("trust.btn.scan"), command=self._on_scan
         )
         self.scan_button.pack(side="left", padx=(8, 0))
         self.scan_button.state(["disabled"])
@@ -190,7 +254,7 @@ class TrustCheckView(ttk.Frame):
         # way to stop a scan was to close the window, so picking the wrong
         # file meant waiting the whole scan out.
         self.cancel_button = ttk.Button(
-            btns, text="İptal", command=self._on_cancel
+            btns, text=t("btn.cancel"), command=self._on_cancel
         )
         self.cancel_button.pack(side="left", padx=(8, 0))
         self.cancel_button.state(["disabled"])
@@ -206,7 +270,7 @@ class TrustCheckView(ttk.Frame):
         # raises TclError and the whole app fails to open. One geometry
         # manager per container.
         ttk.Label(
-            frame, text=PRIVACY_NOTICE, foreground=theme.MUTED, wraplength=680,
+            frame, text=t("privacy.notice"), foreground=theme.MUTED, wraplength=680,
             justify="left",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self._refresh_online_state()
@@ -242,12 +306,12 @@ class TrustCheckView(ttk.Frame):
         except Exception:  # never let a settings problem break the screen
             enabled = False
         self.online_state_var.set(
-            "Çevrimiçi kontrol: Açık" if enabled else "Çevrimiçi kontrol: Kapalı"
+            t("trust.online.on") if enabled else t("trust.online.off")
         )
 
     # --- Summary ------------------------------------------------------
     def _build_summary_panel(self, row: int) -> None:
-        frame = ttk.LabelFrame(self, text="2. Sonuç Özeti", padding=14)
+        frame = ttk.LabelFrame(self, text=t("trust.section.summary"), padding=14)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         frame.columnconfigure(1, weight=1)
 
@@ -257,9 +321,7 @@ class TrustCheckView(ttk.Frame):
         self.badge_canvas.grid(row=0, column=0, sticky="w", padx=(0, 16), rowspan=3)
         self._draw_badge(theme.MUTED, "—")
 
-        self.headline_var = tk.StringVar(
-            value="Bir dosya seçip “Taramayı Başlat” düğmesine bastığınızda sonuç burada görünecek."
-        )
+        self.headline_var = tk.StringVar(value=t("trust.summary.idle"))
         ttk.Label(
             frame,
             textvariable=self.headline_var,
@@ -295,7 +357,7 @@ class TrustCheckView(ttk.Frame):
         gets its own card right under the summary; MD5 and SHA-1 stay
         hidden inside the collapsible "Teknik Detaylar" notebook below.
         """
-        frame = ttk.LabelFrame(self, text="3. Dosya Parmak İzi (SHA-256)", padding=14)
+        frame = ttk.LabelFrame(self, text=t("trust.section.fingerprint"), padding=14)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         frame.columnconfigure(0, weight=1)
 
@@ -311,17 +373,14 @@ class TrustCheckView(ttk.Frame):
 
         ttk.Button(
             frame,
-            text="Kopyala",
+            text=t("btn.copy"),
             width=12,
             command=lambda: self._copy_to_clipboard(self.sha256_var.get()),
         ).grid(row=0, column=1)
 
         ttk.Label(
             frame,
-            text=(
-                "Bu kod dosyanın benzersiz parmak izidir. "
-                "Aynı kod = aynı dosya. Farklı kod = dosya değişmiş demektir."
-            ),
+            text=t("trust.fingerprint.hint"),
             foreground=theme.MUTED,
             wraplength=820,
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
@@ -332,15 +391,19 @@ class TrustCheckView(ttk.Frame):
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         frame.columnconfigure(0, weight=1)
 
-        self.rescan_btn = ttk.Button(frame, text="Tekrar Tara", command=self._on_scan)
+        self.rescan_btn = ttk.Button(
+            frame, text=t("trust.btn.rescan"), command=self._on_scan
+        )
         self.remember_btn = ttk.Button(
-            frame, text="Parmak İzini Kaydet", command=self._on_remember
+            frame, text=t("trust.btn.remember"), command=self._on_remember
         )
         self.export_json_btn = ttk.Button(
-            frame, text="Raporu Kaydet (JSON)", command=lambda: self._on_export("json")
+            frame, text=t("trust.btn.export_json"),
+            command=lambda: self._on_export("json"),
         )
         self.export_html_btn = ttk.Button(
-            frame, text="Raporu Kaydet (HTML)", command=lambda: self._on_export("html")
+            frame, text=t("trust.btn.export_html"),
+            command=lambda: self._on_export("html"),
         )
 
         for i, btn in enumerate(
@@ -366,10 +429,10 @@ class TrustCheckView(ttk.Frame):
         header.columnconfigure(0, weight=1)
         ttk.Label(
             header,
-            text="Teknik Detaylar",
+            text=t("trust.details.title"),
             font=theme.FONT_UI_BOLD,
         ).grid(row=0, column=0, sticky="w")
-        self._details_toggle_var = tk.StringVar(value="Göster ▾")
+        self._details_toggle_var = tk.StringVar(value=t("trust.details.show"))
         self._details_toggle_btn = ttk.Button(
             header,
             textvariable=self._details_toggle_var,
@@ -384,27 +447,27 @@ class TrustCheckView(ttk.Frame):
         self._details_notebook = nb
         self._details_visible = False
 
-        self.file_tab = self._make_kv_tab(nb, "Dosya")
+        self.file_tab = self._make_kv_tab(nb, t("trust.tab.file"))
         self.hash_tab_frame, self.hash_rows = self._make_hash_tab(nb)
-        self.vt_tab = self._make_kv_tab(nb, "VirusTotal")
-        self.signature_tab = self._make_kv_tab(nb, "Dijital İmza")
-        self.local_tab = self._make_kv_tab(nb, "Yerel Kayıt")
+        self.vt_tab = self._make_kv_tab(nb, t("trust.tab.vt"))
+        self.signature_tab = self._make_kv_tab(nb, t("trust.tab.signature"))
+        self.local_tab = self._make_kv_tab(nb, t("trust.tab.local"))
 
-        nb.add(self.file_tab["frame"], text="Dosya Bilgileri")
-        nb.add(self.hash_tab_frame, text="Hash (MD5 / SHA-1)")
-        nb.add(self.vt_tab["frame"], text="VirusTotal")
-        nb.add(self.signature_tab["frame"], text="Dijital İmza")
-        nb.add(self.local_tab["frame"], text="Yerel Kayıt")
+        nb.add(self.file_tab["frame"], text=t("trust.tab.file"))
+        nb.add(self.hash_tab_frame, text=t("trust.tab.hashes"))
+        nb.add(self.vt_tab["frame"], text=t("trust.tab.vt"))
+        nb.add(self.signature_tab["frame"], text=t("trust.tab.signature"))
+        nb.add(self.local_tab["frame"], text=t("trust.tab.local"))
 
     def _toggle_details(self) -> None:
         if self._details_visible:
             self._details_notebook.grid_forget()
             self._details_visible = False
-            self._details_toggle_var.set("Göster ▾")
+            self._details_toggle_var.set(t("trust.details.show"))
         else:
             self._details_notebook.grid(row=1, column=0, sticky="nsew")
             self._details_visible = True
-            self._details_toggle_var.set("Gizle ▴")
+            self._details_toggle_var.set(t("trust.details.hide"))
 
     def _make_kv_tab(self, parent: ttk.Notebook, title: str) -> dict[str, Any]:
         frame = ttk.Frame(parent, padding=10)
@@ -422,11 +485,7 @@ class TrustCheckView(ttk.Frame):
         frame.columnconfigure(1, weight=1)
         ttk.Label(
             frame,
-            text=(
-                "MD5 ve SHA-1 eski hash algoritmalarıdır ve kriptografik açıdan "
-                "kırılmış sayılırlar. Yalnızca eski yazılımlarla uyumluluk için "
-                "burada gösteriliyorlar. Asıl parmak izi yukarıdaki SHA-256'dır."
-            ),
+            text=t("trust.hashes.legacy_warning"),
             foreground=theme.MUTED,
             wraplength=620,
             justify="left",
@@ -443,7 +502,7 @@ class TrustCheckView(ttk.Frame):
             entry.state(["readonly"])
             entry._var = var  # type: ignore[attr-defined]
             ttk.Button(
-                frame, text="Kopyala", width=10,
+                frame, text=t("btn.copy"), width=10,
                 command=lambda v=var: self._copy_to_clipboard(v.get())
             ).grid(row=i, column=2, padx=(0, 0))
             rows[algo] = entry
@@ -455,7 +514,7 @@ class TrustCheckView(ttk.Frame):
     def _pick_file(self) -> None:
         if self._busy:
             return
-        path = filedialog.askopenfilename(title="Kontrol Edilecek Dosyayı Seçin")
+        path = filedialog.askopenfilename(title=t("trust.picker.file_title"))
         if path:
             self._set_selected_path(path)
 
@@ -463,8 +522,8 @@ class TrustCheckView(ttk.Frame):
         p = Path(path)
         if not p.exists() or not p.is_file():
             messagebox.showwarning(
-                "Geçersiz Dosya",
-                f"Bu yol bir dosyaya işaret etmiyor:\n{path}",
+                t("trust.invalid.title"),
+                t("trust.invalid.body", path=path),
             )
             return
         # The controller owns "which file are we talking about"; selecting a
@@ -473,7 +532,7 @@ class TrustCheckView(ttk.Frame):
         self._selected_path = self._controller.selected_path
         self._last_result = None
         self.file_label_var.set(
-            f"Seçili dosya: {p.name}\n{p.resolve()}"
+            t("trust.selected", name=p.name, path=p.resolve())
         )
         self._clear_summary()
         self._clear_technical_tabs()
@@ -491,7 +550,7 @@ class TrustCheckView(ttk.Frame):
         if session is None:
             return  # nothing selected, already busy, or shutting down
         self._set_busy(True)
-        self._set_status(f"Tarama başlatılıyor — {Path(session.path).name}")
+        self._set_status(t("trust.status.starting", name=Path(session.path).name))
         # Clear the *whole* previous result, not just the summary: a failed
         # re-scan of the same file must not leave its old hashes, VT counts,
         # signature or local-record rows visible.
@@ -526,7 +585,7 @@ class TrustCheckView(ttk.Frame):
             return
         self._controller.cancel()
         self.cancel_button.state(["disabled"])
-        self._set_status("İptal ediliyor…")
+        self._set_status(t("status.cancelling"))
 
     def _scan_worker(self, session) -> None:
         path = session.path
@@ -599,11 +658,11 @@ class TrustCheckView(ttk.Frame):
                         continue
                     self._last_result = None
                     self._show_terminal_failure(
-                        "Tarama tamamlanamadı",
-                        f"Dosya okunamadı veya kontrol tamamlanamadı: {data}",
+                        t("trust.error.headline"),
+                        t("trust.error.detail", error=data),
                     )
-                    self._set_status("Tarama tamamlanamadı.")
-                    messagebox.showerror("Tarama Hatası", str(data))
+                    self._set_status(t("trust.status.failed"))
+                    messagebox.showerror(t("trust.error.title"), str(data))
                     terminal_handled = True
         except queue.Empty:
             pass
@@ -664,18 +723,18 @@ class TrustCheckView(ttk.Frame):
         it finished first and the controller discarded the result — and both
         must leave the screen saying the same thing.
         """
-        self._set_status("İptal edildi.")
+        self._set_status(t("trust.status.cancelled"))
         self._show_terminal_failure(
-            "Tarama iptal edildi",
-            "Tarama siz iptal ettiğiniz için tamamlanmadı.",
-            advice="Hazır olduğunuzda yeniden tarayabilirsiniz.",
+            t("trust.cancelled.headline"),
+            t("trust.cancelled.detail"),
+            advice=t("trust.cancelled.advice"),
         )
 
     def _show_terminal_failure(
         self,
         headline: str,
         detail: str,
-        advice: str = "Sorunu giderip tekrar deneyin.",
+        advice: Optional[str] = None,
     ) -> None:
         """
         Replace the in-progress card with an explicit end state.
@@ -686,7 +745,14 @@ class TrustCheckView(ttk.Frame):
         *advice* is what to do next, and it is not the same sentence in both
         cases: telling someone who deliberately pressed Cancel to "fix the
         problem" describes a failure that did not happen.
+
+        Its default is resolved here rather than in the signature. A default
+        argument is evaluated once, when the module is imported, so the
+        sentence would be fixed in whatever language was active at that
+        moment and would not follow a later switch.
         """
+        if advice is None:
+            advice = t("trust.failure.advice")
         self._clear_summary()
         self._clear_technical_tabs()
         self.headline_var.set(headline)
@@ -707,7 +773,7 @@ class TrustCheckView(ttk.Frame):
             self._last_result = None
             self._clear_summary()
             self._clear_technical_tabs()
-            self.file_label_var.set("Seçili dosya yok — kayıttaki dosya bulunamadı.")
+            self.file_label_var.set(t("trust.missing_from_history"))
             self.scan_button.state(["disabled"])
             for btn in (self.export_json_btn, self.export_html_btn,
                         self.remember_btn, self.rescan_btn):
@@ -725,7 +791,7 @@ class TrustCheckView(ttk.Frame):
         VirusTotal counts, signature or local-record rows on screen — they
         would read as belonging to the newly selected file.
         """
-        placeholder = [("Durum", "Henüz tarama yapılmadı")]
+        placeholder = [(t("kv.status"), t("trust.kv.not_scanned"))]
         for tab in (self.file_tab, self.vt_tab, self.signature_tab, self.local_tab):
             try:
                 self._set_kv_rows(tab, placeholder)
@@ -786,11 +852,11 @@ class TrustCheckView(ttk.Frame):
     # ==================================================================
     def _on_done(self, result: TrustResult) -> None:
         self._last_result = result
-        self._set_status("Tamamlandı.")
+        self._set_status(t("trust.status.done"))
 
         summary = result.summary
         level = summary.risk_level.value if summary else RiskLevel.UNKNOWN.value
-        color, label = RISK_PRESENTATION.get(level, RISK_PRESENTATION[RiskLevel.UNKNOWN.value])
+        color, label = risk_presentation(level)
         self._draw_badge(color, label)
 
         self.headline_var.set(summary.headline if summary else "")
@@ -834,8 +900,8 @@ class TrustCheckView(ttk.Frame):
             # recorded — otherwise the History tab silently misses runs.
             log.exception("history record failed")
             messagebox.showwarning(
-                "Geçmişe kaydedilemedi",
-                f"Tarama tamamlandı ancak geçmişe yazılamadı:\n{exc}",
+                t("trust.history_fail.title"),
+                t("trust.history_fail.body", error=exc),
             )
         except Exception:
             log.exception("history record failed")
@@ -849,12 +915,16 @@ class TrustCheckView(ttk.Frame):
     def _render_file_info(self, result: TrustResult) -> None:
         info = result.file_info
         rows = [
-            ("Dosya Adı", info.name),
-            ("Tam Yol", info.path),
-            ("Boyut", info.size_human + f"  ({info.size_bytes} bayt)"),
-            ("Uzantı", info.extension),
-            ("Oluşturulma", info.created_at or "—"),
-            ("Son Değişiklik", info.modified_at or "—"),
+            (t("trust.file.name"), info.name),
+            (t("trust.file.path"), info.path),
+            (
+                t("trust.file.size"),
+                t("trust.file.size_value",
+                  human=info.size_human, size=info.size_bytes),
+            ),
+            (t("trust.file.extension"), info.extension),
+            (t("trust.file.created"), info.created_at or "—"),
+            (t("trust.file.modified"), info.modified_at or "—"),
         ]
         self._set_kv_rows(self.file_tab, rows)
 
@@ -875,14 +945,16 @@ class TrustCheckView(ttk.Frame):
     def _render_vt(self, result: TrustResult) -> None:
         vt = result.vt
         if vt is None:
-            self._set_kv_rows(self.vt_tab, [("Durum", "Sorgu yapılmadı (kapalı)")])
+            self._set_kv_rows(
+                self.vt_tab, [(t("kv.status"), t("trust.vt.not_queried"))]
+            )
             return
         if vt.status == VTStatus.NO_API_KEY:
             self._set_kv_rows(
                 self.vt_tab,
                 [
-                    ("Durum", "API anahtarı ayarlanmamış"),
-                    ("Bilgi", "Ayarlar sekmesinden VirusTotal API anahtarınızı girebilirsiniz."),
+                    (t("kv.status"), t("trust.vt.no_key")),
+                    (t("trust.vt.no_key_hint_label"), t("trust.vt.no_key_hint")),
                 ],
             )
             return
@@ -890,8 +962,8 @@ class TrustCheckView(ttk.Frame):
             self._set_kv_rows(
                 self.vt_tab,
                 [
-                    ("Durum", vt.status.value),
-                    ("Açıklama", vt.message or "—"),
+                    (t("kv.status"), vt.status.value),
+                    (t("kv.detail"), vt.message or "—"),
                 ],
             )
             return
@@ -899,42 +971,37 @@ class TrustCheckView(ttk.Frame):
         self._set_kv_rows(
             self.vt_tab,
             [
-                ("Durum", "Sorgu başarılı"),
-                ("Zararlı (malicious)", str(s.malicious)),
-                ("Şüpheli (suspicious)", str(s.suspicious)),
-                ("Temiz (harmless)", str(s.harmless)),
-                ("Algılanmadı (undetected)", str(s.undetected)),
-                ("Toplam motor", str(vt.total_engines)),
-                ("Son analiz", vt.last_analysis_date or "—"),
-                ("İtibar (reputation)", "—" if vt.reputation is None else str(vt.reputation)),
-                ("Dosya türü tahmini", vt.type_description or "—"),
-                ("Bilinen isim", vt.meaningful_name or "—"),
+                (t("kv.status"), t("trust.vt.ok")),
+                (t("trust.vt.malicious"), str(s.malicious)),
+                (t("trust.vt.suspicious"), str(s.suspicious)),
+                (t("trust.vt.harmless"), str(s.harmless)),
+                (t("trust.vt.undetected"), str(s.undetected)),
+                (t("trust.vt.total_engines"), str(vt.total_engines)),
+                (t("trust.vt.last_analysis"), vt.last_analysis_date or "—"),
+                (t("trust.vt.reputation"),
+                 "—" if vt.reputation is None else str(vt.reputation)),
+                (t("trust.vt.type_description"), vt.type_description or "—"),
+                (t("trust.vt.meaningful_name"), vt.meaningful_name or "—"),
             ],
         )
 
     def _render_signature(self, result: TrustResult) -> None:
         sig = result.signature
         if sig is None:
-            self._set_kv_rows(self.signature_tab, [("Durum", "Kontrol yapılmadı")])
+            self._set_kv_rows(
+                self.signature_tab, [(t("kv.status"), t("trust.sig.not_checked"))]
+            )
             return
-        friendly = {
-            SignatureStatus.SIGNED_VALID:    "İmzalı (geçerli)",
-            SignatureStatus.HASH_MISMATCH:   "İmzalı ama içerik değişmiş (hash uyuşmuyor)",
-            SignatureStatus.UNTRUSTED:       "İmzalı ama sertifika güvenilmez",
-            SignatureStatus.UNSIGNED:        "İmza yok",
-            SignatureStatus.NOT_APPLICABLE:  "Bu dosya türüne uygulanamaz",
-            SignatureStatus.UNKNOWN:         "Belirsiz",
-            SignatureStatus.UNSUPPORTED:     "Desteklenmiyor (yalnızca Windows)",
-            SignatureStatus.ERROR:           "Hata",
-        }.get(sig.status, sig.status.value)
+        key = _SIGNATURE_KEYS.get(sig.status)
+        friendly = t(key) if key else sig.status.value
         rows = [
-            ("Durum", friendly),
-            ("İmzalayan", sig.signer or "—"),
+            (t("kv.status"), friendly),
+            (t("trust.sig.signer"), sig.signer or "—"),
         ]
         if sig.message:
-            rows.append(("Açıklama", sig.message))
+            rows.append((t("kv.detail"), sig.message))
         if sig.raw_status:
-            rows.append(("Ham durum", sig.raw_status))
+            rows.append((t("trust.sig.raw_status"), sig.raw_status))
         self._set_kv_rows(self.signature_tab, rows)
 
     def _render_local(self, result: TrustResult) -> None:
@@ -942,23 +1009,19 @@ class TrustCheckView(ttk.Frame):
         if local is None:
             self._set_kv_rows(
                 self.local_tab,
-                [("Durum", "Yerel karşılaştırma yapılmadı")],
+                [(t("kv.status"), t("trust.local.not_compared"))],
             )
             return
-        friendly = {
-            LocalVerifyStatus.SAME:        "Aynı dosya",
-            LocalVerifyStatus.CHANGED:     "Değişmiş dosya!",
-            LocalVerifyStatus.NEW:         "Yeni kayıt oluşturuldu",
-            LocalVerifyStatus.NOT_TRACKED: "Kayıt bulunamadı",
-        }.get(local.status, local.status.value)
-        rows = [("Durum", friendly), ("Açıklama", local.message or "—")]
+        key = _LOCAL_KEYS.get(local.status)
+        friendly = t(key) if key else local.status.value
+        rows = [(t("kv.status"), friendly), (t("kv.detail"), local.message or "—")]
         if local.previous_hash:
-            rows.append(("Önceki SHA-256", local.previous_hash))
+            rows.append((t("trust.local.previous_hash"), local.previous_hash))
         if local.current_hash:
-            rows.append(("Şimdiki SHA-256", local.current_hash))
+            rows.append((t("trust.local.current_hash"), local.current_hash))
         if local.record:
-            rows.append(("İlk kayıt", local.record.recorded_at))
-            rows.append(("Son güncelleme", local.record.last_seen_at))
+            rows.append((t("trust.local.first_seen"), local.record.recorded_at))
+            rows.append((t("trust.local.last_seen"), local.record.last_seen_at))
         self._set_kv_rows(self.local_tab, rows)
 
     # ==================================================================
@@ -1001,16 +1064,20 @@ class TrustCheckView(ttk.Frame):
             vt_suspicious=(result.vt.stats.suspicious if result.vt else 0),
         )
         if decision is BaselineDecision.BLOCKED:
-            messagebox.showerror("Kaydedilemez", DECISION_PROMPTS[decision])
+            messagebox.showerror(
+                t("trust.remember.blocked_title"), DECISION_PROMPTS[decision]
+            )
             return
         if decision is BaselineDecision.ALREADY_CURRENT:
-            messagebox.showinfo("Zaten güncel", DECISION_PROMPTS[decision])
+            messagebox.showinfo(
+                t("trust.remember.current_title"), DECISION_PROMPTS[decision]
+            )
             return
         if decision in (BaselineDecision.CONFIRM_REPLACE, BaselineDecision.CONFIRM_RISKY):
             title = (
-                "Temel sürümü değiştir"
+                t("trust.remember.replace_title")
                 if decision is BaselineDecision.CONFIRM_REPLACE
-                else "Yine de kaydedilsin mi?"
+                else t("trust.remember.risky_title")
             )
             if not messagebox.askyesno(title, DECISION_PROMPTS[decision]):
                 return
@@ -1020,13 +1087,15 @@ class TrustCheckView(ttk.Frame):
         try:
             current = compute_file_hashes(info.path, ("sha256",), ensure_stable=True)
         except HashError as exc:
-            messagebox.showerror("Kaydedilemedi", f"Dosya yeniden okunamadı: {exc}")
+            messagebox.showerror(
+                t("trust.remember.failed_title"),
+                t("trust.remember.reread_failed", error=exc),
+            )
             return
         if current.get("sha256") != result.sha256:
             messagebox.showerror(
-                "Kaydedilemedi",
-                "Dosya tarama tamamlandıktan sonra değişti; bu sürüm temel "
-                "sürüm olarak kaydedilmedi. Lütfen yeniden tarayın.",
+                t("trust.remember.failed_title"),
+                t("trust.remember.changed_after_scan"),
             )
             return
 
@@ -1036,12 +1105,11 @@ class TrustCheckView(ttk.Frame):
             )
         except LocalStoreError as exc:
             # Only claim success when the write actually happened.
-            messagebox.showerror("Kaydedilemedi", str(exc))
+            messagebox.showerror(t("trust.remember.failed_title"), str(exc))
             return
         messagebox.showinfo(
-            "Parmak izi kaydedildi",
-            outcome.message
-            or "Yerel kayıt güncellendi. Bu dosyayı ileride taradığınızda değişip değişmediği gösterilecek.",
+            t("trust.remember.done_title"),
+            outcome.message or t("trust.remember.done_body"),
         )
         # Refresh the Local tab so the user sees the new "Aynı dosya" state.
         self._last_result.local = self._local_store.compare(info.path, self._last_result.sha256)
@@ -1053,12 +1121,12 @@ class TrustCheckView(ttk.Frame):
         # Strip the extension from the source filename so we don't end
         # up with "setup.exe_guven_raporu.json".
         stem = Path(self._last_result.file_info.name).stem or "rapor"
-        suggested = f"{stem}_guven_raporu.{fmt}"
+        suggested = t("trust.export.filename", stem=stem) + f".{fmt}"
         path = filedialog.asksaveasfilename(
-            title="Raporu Kaydet",
+            title=t("trust.export.title"),
             defaultextension=f".{fmt}",
             initialfile=suggested,
-            filetypes=[(fmt.upper(), f"*.{fmt}"), ("Tüm dosyalar", "*.*")],
+            filetypes=[(fmt.upper(), f"*.{fmt}"), (t("trust.export.all_files"), "*.*")],
         )
         if not path:
             return
@@ -1069,16 +1137,18 @@ class TrustCheckView(ttk.Frame):
             else:
                 export_html(report, path)
         except TrustReportError as exc:
-            messagebox.showerror("Rapor Hatası", str(exc))
+            messagebox.showerror(t("trust.export.error_title"), str(exc))
             return
-        messagebox.showinfo("Rapor Kaydedildi", f"Rapor şu dosyaya yazıldı:\n{path}")
+        messagebox.showinfo(
+            t("trust.export.done_title"), t("trust.export.done_body", path=path)
+        )
 
     # ==================================================================
     # Visual helpers
     # ==================================================================
     def _clear_summary(self) -> None:
-        self._draw_badge(theme.MUTED, "Taranıyor…")
-        self.headline_var.set("Dosya taranıyor, lütfen bekleyin…")
+        self._draw_badge(theme.MUTED, t("trust.badge.scanning"))
+        self.headline_var.set(t("trust.summary.scanning"))
         self.bullets_text.configure(state="normal")
         self.bullets_text.delete("1.0", "end")
         self.bullets_text.configure(state="disabled")
@@ -1107,4 +1177,4 @@ class TrustCheckView(ttk.Frame):
             return
         self.clipboard_clear()
         self.clipboard_append(text)
-        self._set_status(f"Hash panoya kopyalandı ({len(text)} karakter).")
+        self._set_status(t("trust.copied", count=len(text)))
