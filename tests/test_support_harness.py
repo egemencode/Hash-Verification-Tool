@@ -226,3 +226,33 @@ class DiagnosticTempDirTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DropInCompatibilityTests(unittest.TestCase):
+    """``DiagnosticTempDir`` says it can stand in for ``TemporaryDirectory``.
+
+    Most of that is real — ``.name``, ``__fspath__``, ``__str__`` — and it is
+    why every path-taking API accepts it unchanged. The ``with`` block was the
+    exception: ``tempfile.TemporaryDirectory.__enter__`` hands back a *string*,
+    this one handed back the object, and ``os.fspath`` covers the difference
+    everywhere except the places that want a real ``str``. Converting the
+    suite's remaining plain temp dirs turned that up as four errors reading
+    ``TypeError: str expected, not DiagnosticTempDir`` — all of them
+    ``mock.patch.dict(os.environ, ...)``, which is exactly such a place.
+    """
+
+    def test_the_with_block_binds_a_string(self) -> None:
+        with DiagnosticTempDir() as bound:
+            self.assertIsInstance(bound, str)
+
+    def test_the_bound_value_works_where_only_a_str_will_do(self) -> None:
+        with DiagnosticTempDir() as bound:
+            # os.environ refuses anything that is not a str, __fspath__ or no.
+            with mock.patch.dict(os.environ, {"HVT_TEST_TMP": bound}):
+                self.assertEqual(os.environ["HVT_TEST_TMP"], bound)
+
+    def test_the_directory_still_goes_away_after_the_block(self) -> None:
+        with DiagnosticTempDir() as bound:
+            path = Path(bound)
+            self.assertTrue(path.is_dir())
+        self.assertFalse(path.exists())

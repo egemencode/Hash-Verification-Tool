@@ -9,10 +9,11 @@ inspect the widgets, and assert on what the user would see.
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+from tests.support import DiagnosticTempDir
 
 try:
     import tkinter as tk
@@ -29,7 +30,7 @@ except Exception as exc:  # pragma: no cover
 @unittest.skipUnless(TK_AVAILABLE, TK_SKIP or "Tk unavailable")
 class _GuiCase(unittest.TestCase):
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self.root = Path(self._tmp.name)
         self._env = mock.patch.dict(
             os.environ, {"LOCALAPPDATA": str(self.root / "profile")}

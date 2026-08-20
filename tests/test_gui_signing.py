@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -29,6 +28,8 @@ from unittest import mock
 
 import main as cli
 from core import manifest_signing
+
+from tests.support import DiagnosticTempDir
 
 try:
     import tkinter as tk
@@ -57,7 +58,7 @@ def run_cli(args: list[str]) -> int:
 )
 class HashTabSigningTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self.root = Path(self._tmp.name)
         self._env = mock.patch.dict(
             os.environ, {"LOCALAPPDATA": str(self.root / "profile")}

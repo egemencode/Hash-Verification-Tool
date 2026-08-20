@@ -12,9 +12,10 @@ Skipped only when no display/Tk is available (headless CI).
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 from unittest import mock
+
+from tests.support import DiagnosticTempDir
 
 try:
     import tkinter as tk
@@ -33,7 +34,7 @@ class AppStartupTests(unittest.TestCase):
     """A smoke test that would have caught 'the app does not open'."""
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self._env = mock.patch.dict(
             os.environ, {"LOCALAPPDATA": self._tmp.name}
         )

@@ -181,8 +181,19 @@ class DiagnosticTempDir:
             # not a retry of a failed assertion: the files are already gone.
             _register_exit_sweep(self.path)
 
-    def __enter__(self) -> "DiagnosticTempDir":
-        return self
+    def __enter__(self) -> str:
+        """The directory path, exactly as ``TemporaryDirectory`` hands it back.
+
+        Returning ``self`` was the obvious thing and it was wrong: it made
+        ``with DiagnosticTempDir() as d:`` bind an object where the caller
+        expected a string. ``__fspath__`` hides that everywhere a path is
+        wanted, which is most places — and then fails at the few that want a
+        real ``str``, ``os.environ`` assignment being the one this suite hit.
+        A drop-in that is a drop-in almost everywhere is worse than one that
+        is not, because the gap only shows up in the call site nobody
+        converted yet.
+        """
+        return self._dir
 
     def __exit__(self, *_exc) -> None:
         self.cleanup()

@@ -21,10 +21,11 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+from tests.support import DiagnosticTempDir
 
 try:
     import tkinter as tk
@@ -42,7 +43,7 @@ class _AppCase(unittest.TestCase):
     """Builds a real app against an isolated profile."""
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self.root = Path(self._tmp.name)
         self.profile = self.root / "profile"
         (self.profile / "HashTool").mkdir(parents=True)

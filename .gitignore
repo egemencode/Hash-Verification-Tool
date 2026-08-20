@@ -39,9 +39,10 @@ hashtool_settings.json
 .claude/
 
 # Çalışma notları ve ham denetim çıktıları.
-# Depo public: bu dosyalar mutlak yerel yolları (C:\Users\<ad>\...), makine
-# ayrıntılarını ve iç inceleme promptlarını içeriyor; hiçbiri üründen bir şey
-# tarif etmiyor. Kapatılan bulguların kalıcı kaydı CHANGELOG.md ile
+# Bu dosyalar mutlak yerel yolları (C:\Users\<ad>\...), makine ayrıntılarını ve
+# iç inceleme promptlarını içeriyor; hiçbiri üründen bir şey tarif etmiyor.
+# Depo 2026-08-20'de private'a alındı ama karar değişmedi: görünürlük tek tıkla
+# geri döner, ignore kalır. Kapatılan bulguların kalıcı kaydı CHANGELOG.md ile
 # docs/P1-BACKLOG.md'de tutulur.
 HANDOFF.md
 docs/redteam-*.json

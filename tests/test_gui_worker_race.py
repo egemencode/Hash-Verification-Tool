@@ -22,10 +22,11 @@ can: after the drain, before the liveness check.
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+from tests.support import DiagnosticTempDir
 
 try:
     import tkinter as tk
@@ -73,7 +74,7 @@ class _WorkerFinishingBetweenTheChecks:
 @unittest.skipUnless(TK_AVAILABLE, TK_SKIP or "Tk unavailable")
 class WorkerHandoverTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         profile = Path(self._tmp.name) / "profile"
         (profile / "HashTool").mkdir(parents=True)
         self._env = mock.patch.dict(os.environ, {"LOCALAPPDATA": str(profile)})

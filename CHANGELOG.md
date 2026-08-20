@@ -4,11 +4,25 @@ All notable changes to this project are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/) and this project
 follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.0.0] — 2026-08-20
 
 A security and correctness revision. Several changes are deliberately
 **breaking**: where backwards compatibility and a truthful verdict conflicted,
 the verdict won.
+
+The major number moves because of that, not because the release is large. A
+script that ran `verify` against an unsigned manifest and checked for exit `0`
+stops working here — the exit code is `5` now, and that is a change to the
+contract, not a bug fix. Calling it 1.3.0 would have been the quiet choice and
+the wrong one.
+
+Built and checked as an executable, which is new: `tools/verify_exe_smoke.py`
+runs twelve behaviours through `dist\HashTool.exe` and through the source
+side by side, and opens `dist\HashToolGUI.exe` to read the version out of its
+own title bar. The build that shipped before this one answered `--version`
+with the same string as this one while lacking `keygen`, `sign`, `inspect`,
+the MD5 refusal and the unsigned-manifest refusal entirely — so the harness
+now requires an executable to report the version its source tree declares.
 
 ### Added
 - **Signed manifests, end to end.** `keygen`, `sign` and `--sign-key` make the
@@ -321,11 +335,43 @@ the verdict won.
   no PATH fallback, no `-ExecutionPolicy Bypass`.
 
 ### Tests
-- 37 → 607, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
+- 37 → 620, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
   `PYTHONIOENCODING` unset, and under explicit UTF-8.
 - `tools/verify_fix_coverage.py` reverts each fix in a scratch copy and requires
   the test that claims to cover it to fail, so a test that asserts nothing is
-  caught rather than counted.
+  caught rather than counted. 87 of 87.
+- `tools/verify_exe_smoke.py` is new: twelve behaviours run through the packaged
+  EXE and through the source side by side, each carrying an absolute expectation
+  as well, because two builds can agree by being equally broken. `--gui` opens
+  the windowed build, finds its window through Win32 and reads the version out
+  of the title bar. `--teeth` points the same scenarios at a build known to
+  predate the work and requires it to fail — a smoke test that cannot tell a
+  three-month-old executable from today's would pass forever without looking at
+  anything.
+- The gate quotes a crashed round from the *top* of the fatal-error dump rather
+  than the bottom. The bottom is unittest's own runner machinery and is
+  identical for every crash; the frame naming the test is at the top. Found by
+  needing it: a round died with `0xC0000409` and the excerpt was ten lines of
+  `unittest/suite.py`. Held by `tests/test_gate_reporting.py`.
+- The three tools no longer reconfigure stdout at import time. A module that
+  rewrites the process's stdout just by being imported makes whatever imports
+  it order-dependent, and this suite has spent enough rounds on encoding
+  defects to care which encoding it is running under.
+- **Every test temp directory now goes through `DiagnosticTempDir`.** Thirty-six
+  files already did; seventeen used `tempfile.TemporaryDirectory` directly and
+  were exposed to a failure the helper exists to absorb — a directory Windows
+  refuses to remove while it is verifiably empty, because `unlink` only marks a
+  file for deletion and the entry survives until the last handle closes. One of
+  those seventeen produced a red round during this release's testing; the
+  directory it left behind was inspected, was empty, and deleted without
+  complaint minutes later.
+  The conversion deliberately makes leaks *more* visible: these directories are
+  named `hvt-test-*`, which the gate's leak check looks for, while plain `tmp*`
+  ones were invisible to it.
+- Fixed in the harness while doing that: `DiagnosticTempDir.__enter__` returned
+  the object where `tempfile.TemporaryDirectory` returns a string, so
+  `with ... as d:` bound something `os.environ` will not accept — despite the
+  class documenting itself as a drop-in. Held by three new tests.
 
 ## [1.2.0] — 2026-04-20
 

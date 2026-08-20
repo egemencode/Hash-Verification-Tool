@@ -37,7 +37,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.stdout.reconfigure(encoding="utf-8")
 
 REPO = Path(__file__).resolve().parent.parent
 PYTHON = REPO / ".venv" / "Scripts" / "python.exe"
@@ -57,6 +56,28 @@ NOISE = (
 # unittest writes its summary to stderr, not stdout.
 RAN_RE = re.compile(r"^Ran (\d+) tests? in ", re.MULTILINE)
 SKIPPED_RE = re.compile(r"\bskipped=(\d+)")
+
+# When the interpreter dies rather than failing a test, Python prints a stack
+# dump and the informative end of it is the *top*: the frame nearest the crash
+# names the test. The tail is unittest's own runner machinery, identical for
+# every crash there has ever been.
+FATAL = ("Windows fatal exception", "Fatal Python error", "Current thread 0x")
+
+
+def failure_excerpt(err: str, limit: int = 14) -> str:
+    """The part of a failed round's stderr worth printing.
+
+    Normally that is the last few lines — the assertion and its traceback.
+    For a crash it is the opposite end, so this looks for the dump header
+    first and reads forward from there.
+    """
+    lines = err.strip().splitlines()
+    for marker in FATAL:
+        for index, line in enumerate(lines):
+            if marker in line:
+                excerpt = lines[index:index + limit]
+                return "\n      ".join(excerpt)
+    return "\n      ".join(lines[-limit:])
 
 
 def child_env(utf8: bool) -> dict[str, str]:
@@ -96,8 +117,7 @@ def one_round(env: dict[str, str], min_tests: int) -> tuple[bool, list[str], int
 
     problems: list[str] = []
     if proc.returncode != 0:
-        tail = "\n      ".join(err.strip().splitlines()[-12:])
-        problems.append(f"exit {proc.returncode}\n      {tail}")
+        problems.append(f"exit {proc.returncode}\n      {failure_excerpt(err)}")
 
     # Exit 0 says "nothing failed", not "the behaviour was checked". A suite in
     # which everything skipped also exits 0.
@@ -132,6 +152,10 @@ def one_round(env: dict[str, str], min_tests: int) -> tuple[bool, list[str], int
 
 
 def main() -> int:
+    # Not at import time: these are ordinary modules as well as
+    # scripts, and a module that rewrites the process's stdout just by
+    # being imported makes whatever imports it order-dependent.
+    sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=10)
     parser.add_argument(

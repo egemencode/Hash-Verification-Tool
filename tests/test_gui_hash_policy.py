@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -31,11 +30,13 @@ except Exception as exc:  # pragma: no cover
 
 import core.hash_utils as hash_utils
 
+from tests.support import DiagnosticTempDir
+
 
 @unittest.skipUnless(TK_AVAILABLE, TK_SKIP or "Tk unavailable")
 class HashTabPolicyTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self.root = Path(self._tmp.name)
         self._env = mock.patch.dict(
             os.environ, {"LOCALAPPDATA": str(self.root / "profile")}

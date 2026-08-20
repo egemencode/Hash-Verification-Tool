@@ -36,9 +36,10 @@ existing caller already reads.
 
 from __future__ import annotations
 
-import tempfile
 import unittest
 from pathlib import Path
+
+from tests.support import DiagnosticTempDir
 
 
 class PolicyNoticeLanguageTests(unittest.TestCase):
@@ -57,7 +58,7 @@ class PolicyNoticeLanguageTests(unittest.TestCase):
         return [n.message for n in evaluate_hash_request(**kwargs)]
 
     def test_a_refusal_reads_in_the_chosen_language(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        with DiagnosticTempDir() as tmp:
             target = Path(tmp) / "a.bin"
             target.write_bytes(b"x")
             kwargs = dict(mode="file", target=str(target), output=str(target))
@@ -76,7 +77,7 @@ class PolicyNoticeLanguageTests(unittest.TestCase):
         values, not words: a translation that dropped them would still read
         like a sentence.
         """
-        with tempfile.TemporaryDirectory() as tmp:
+        with DiagnosticTempDir() as tmp:
             target = Path(tmp) / "data"
             target.mkdir()
             kwargs = dict(
@@ -107,7 +108,7 @@ class PolicyNoticeLanguageTests(unittest.TestCase):
         from core.i18n import set_language
         from core.scan_policy import evaluate_hash_request
 
-        with tempfile.TemporaryDirectory() as tmp:
+        with DiagnosticTempDir() as tmp:
             root = Path(tmp)
             folder = root / "data"
             folder.mkdir()
@@ -180,7 +181,7 @@ class LocalRecordLanguageTests(unittest.TestCase):
     """What the local fingerprint store says about a file it has seen."""
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
 
     def tearDown(self) -> None:
         from core.i18n import set_language
@@ -218,7 +219,7 @@ class ScanProgressLanguageTests(unittest.TestCase):
     """The line the status bar shows while a scan is running."""
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self.target = Path(self._tmp.name) / "sample.bin"
         self.target.write_bytes(b"hello" * 100)
 

@@ -181,13 +181,63 @@ Testler: `tests/test_gui_signing.py` (6 davranış testi).
 > `core.key_files.load_private_key` ise `PrivateKeyFile` nesnesi döndürüyor.
 > GUI doğrudan çekirdeği kullandığı için hex'i kendisi çıkarıyor.
 
-## 6. Uzun yol dayanıklılığı yalnız kaynak üzerinde doğrulandı
+## 6. ~~Uzun yol dayanıklılığı yalnız kaynak üzerinde doğrulandı~~ — KAPANDI
 
 `tests/test_unicode_paths.py::LongPathTests` >260 karakterlik yolu kaynaktan
-çalışan araçla test ediyor. PyInstaller EXE üzerinde aynı testi çalıştıracak
-bir smoke adımı yok; `dist/` altındaki ikili dosyalar bu turdan eski.
+çalışan araçla test ediyordu. PyInstaller EXE üzerinde aynı testi çalıştıracak
+bir smoke adımı yoktu; `dist/` altındaki ikili dosyalar üç ay eskiydi.
 
-**Yapılacak:** Paketleme turunda EXE için `--version` / uzun yol smoke testi.
+### ✔ `tools/verify_exe_smoke.py` (paketleme turu, 2026-08-20)
+
+On iki davranış, her biri **iki kez** koşuyor: bir kez `main.py` üzerinden, bir
+kez `dist\HashTool.exe` üzerinden, sonuçlar karşılaştırılıyor. Fark yeterli
+değil — iki yapı **aynı biçimde bozuk olarak** da anlaşabilir — bu yüzden her
+senaryo ayrıca kendi mutlak beklentisini taşıyor: şu çıkış kodu, şu özet, şu
+kadar manifest girdisi.
+
+Uzun yol senaryosunda asıl iddia çıkış kodu **değil**: hiçbir şey gezmeyen bir
+tarama da 0 ile çıkar, boş bir manifest yazar. O yüzden şart "manifestte tam 1
+girdi var". EXE'nin kendi Windows uygulama manifesti var ve uzun yol desteği
+orada bildiriliyor — makinenin `LongPathsEnabled` kaydından miras alınmıyor,
+ki bu tam da yalnız paketlenmiş hâlde ölçülebilecek bir şey.
+
+### ✔ GUI için ayrı mod — `--gui`
+
+Pencereli yapının import hatasını basacağı bir yer yok: ya pencere açılır ya
+sessizce ölür. `--gui` süreci başlatıyor, pencereyi **Win32 `EnumWindows`** ile
+buluyor, başlık çubuğundaki sürümü okuyor, `WM_CLOSE` yolluyor ve hem pencerenin
+hem sürecin gittiğini ayrı ayrı doğruluyor.
+
+İki tuzak yol boyunca çıktı, ikisi de not edilmeye değer:
+
+- **onefile yapıda pencere ana sürecin değil, çocuğun.** `MainWindowTitle`
+  boş döner ve bu, açılmayan bir GUI ile birebir aynı görünür. Ana süreci tek
+  başına öldürmek de çocuğu masaüstünde öksüz bırakıyor — ilk denemede tam
+  olarak bu oldu, o yüzden kapatma `taskkill /T`.
+- **Pencereleri başlığa göre saymak yanlış.** Bu programın iki kopyası aynı
+  başlığı taşıyor; başlık dizelerinden küme çıkarınca önceki koşumdan kalan tek
+  bir örnek sonraki bütün pencereleri görünmez yapıyor. Artık HWND'ye göre.
+
+### ✔ Dişi ölçüldü — `--teeth`
+
+Aynı senaryolar, işin öncesine ait olduğu bilinen bir EXE'ye yöneltiliyor ve
+**başarısız olması şart**. Eski yapıyı ayırt edemeyen bir smoke testi hiçbir
+şeye bakmadan sonsuza kadar geçer. `dist\eski-2026-05-24\HashTool.exe`
+şu an **12 senaryonun 10'unda** reddediliyor.
+
+Reddedilme sebepleri, o EXE'nin ne olduğunu da anlatıyor: `keygen`, `sign`,
+`inspect` yok; `--algo md5` bayraksız kabul ediliyor ve manifest yazılıyor;
+imzasız manifest `0` ile "eşleşti" deniyor. Yani yalnızca eski değil, güvenlik
+korumalarından **önceki** sürüm.
+
+### ⚠ Buradan çıkan asıl ders: sürüm dizesi kimlik değildi
+
+İki EXE — üç ay ara, farklı alt komut kümesi, farklı güvenlik davranışı —
+`--version`'a **aynı** cevabı veriyordu: `1.2.0`. Manifestlerdeki
+`tool_version` de aynı. Var olan bir sürüm dizesi hiçbir şey söylemiyor; o
+yüzden koşum artık EXE'nin **ağacın bildirdiği** sürümü söylemesini şart
+koşuyor, ve sürüm 2.0.0'a çıkarıldı (kıran değişiklikler yüzünden minör
+değil majör).
 
 ## 7. Dosya symlink containment'ı uçtan uca doğrulanamadı
 
@@ -225,6 +275,64 @@ Eldeki kanıt dışarıyı gösteriyor ama **atıf yapılmadı**:
   gösterdi.
 - Ad biçimi (gerçek dosya adı + `.tmp`, büyük harf) bir filtre sürücüsünün
   silme penceresinde gölge kopya oluşturmasına uyuyor.
+
+### 2026-08-20 (paketleme turu): **dizin biçimi çözüldü**, dosya biçimi duruyor
+
+Bu turda 20 turluk bir koşumun 18.'si düştü ve düşme şekli tanıdıktı:
+
+```
+tests/test_notice_language.py, tearDown -> self._tmp.cleanup()
+OSError: [WinError 145] Dizin boş değil: '...\Temp	mp104fch3w'
+```
+
+**Dizine bakıldı — ve boştu.** `os.listdir` boş liste, PowerShell
+`-Force -Recurse` hiçbir şey göstermedi, ve dakikalar sonra `os.rmdir` sorunsuz
+çalıştı. Yani temizlik anında dizin *silinmiş ama girdisi hâlâ ayakta* olan bir
+dosya tutuyordu: Windows'ta `unlink` dosyayı yalnız silinmeye işaretler, son
+handle kapanana kadar dizin girdisi yaşar. Bir tarayıcının (Defender / arama
+indeksleyici) az önce yazdığımız dosyaya dokunması yeterli.
+
+**Bu, `tests/support.py`'nin zaten bildiği ve bilerek hoş gördüğü durum:**
+
+> *"A directory that refuses to be removed while being verifiably empty is not
+> a defect... The product never removes these directories, so asserting on it
+> would test the antivirus, not the code."*
+
+Sorun davranışta değil, **kapsamdaydı**: 36 test dosyası `DiagnosticTempDir`
+kullanıyordu, **17 dosya ham `tempfile.TemporaryDirectory`** kullanıyordu ve
+hamın böyle bir hoşgörüsü yok — ham `rmdir` hatası doğrudan yukarı çıkıyor.
+Düşen test tam olarak o 17'den biriydi.
+
+**Yapılan:** 32 çağrının hepsi `DiagnosticTempDir`'e çevrildi. Ürün koduna
+dokunulmadı; bu bir harness tutarsızlığıydı, ürün kusuru değil.
+
+Bunun **yan etkisi bilinçli olarak kabul edildi**: `DiagnosticTempDir`
+dizinleri `hvt-test-` önekiyle açıyor, yani kapının `hvt*` sızıntı kontrolü
+artık bunları **görüyor**. Düz `tmp*` dizinleri kapıya görünmezdi. Kapı kısa
+vadede daha kırmızı olabilir — ama görmediği için yeşil olmaktansa gördüğü için
+kırmızı olması bu dalın tercihi.
+
+### Bu arada harness'ın kendisinde gerçek bir kusur çıktı
+
+Çevirme işlemi 4 testi `TypeError: str expected, not DiagnosticTempDir` ile
+düşürdü. Sebep: `tempfile.TemporaryDirectory.__enter__` bir **str** döndürüyor,
+`DiagnosticTempDir.__enter__` ise nesnenin kendisini döndürüyordu — oysa sınıfın
+kendi yorumu "`with ... as d:` bloklarında değiştirmeden kullanılabilir"
+diyordu. `__fspath__` farkı yol isteyen her yerde gizliyor, sonra gerçek `str`
+isteyen birkaç yerde (burada `mock.patch.dict(os.environ, ...)`) düşüyor.
+
+*Her yerde değil de neredeyse her yerde* drop-in olan bir sınıf, hiç olmayandan
+kötüdür: boşluk yalnız henüz çevrilmemiş çağrı yerinde görünür.
+
+Düzeltildi (`__enter__` artık `self._dir` döndürüyor) ve
+`tests/test_support_harness.py::DropInCompatibilityTests` (3 test) ile tutuldu;
+düzeltmeden önce kırmızı oldukları gösterildi.
+
+### Kapanmayan: **dosya biçimi**
+
+`KNOWN_FILES.JSON.tmp` gözlemi ayrı bir imza — dizinin boş kalması değil, içinde
+**tanınmayan bir dosyanın belirmesi**. Onun atfı hâlâ yükseltilmiş bir oturumda
+`fltmc` / Procmon istiyor. Madde kapanmadı, **daraldı**.
 
 ### 2026-08-19 turunda eklenen kanıt (üçüncü gözlem + izole deneyler)
 
@@ -510,3 +618,100 @@ ve `core/local_verify.py`'nin depo hataları.
 Bunlar `str(exc)` olarak ekrana gelebiliyor. Çevrilmeleri isteniyorsa her özel
 istisnanın bir `Phrase` taşıması ve GUI'nin onu render etmesi gerekir — ayrı
 bir tur, ve imzalama yollarına dokunduğu için ayrı bir risk.
+
+---
+
+## 12. Test süreci aralıklı olarak **çöküyor** (`0xC0000409`) — açıklanmadı
+
+Paketleme turunda (2026-08-20) kapıyı koşarken çıktı. Bu, madde 8'deki `.tmp`
+hayaleti **değil**: farklı imza, farklı sonuç.
+
+| | Madde 8 (`.tmp` hayaleti) | Madde 12 (bu) |
+|---|---|---|
+| Ne oluyor | Bir test **başarısız** oluyor (`InconclusiveCleanupError`) | Süreç **ölüyor** |
+| Çıkış kodu | 1 | `3221226505` = `0xC0000409` |
+| `Ran N tests` özeti | Basılıyor | **Hiç basılmıyor** |
+
+### Ölçülen
+
+- **22 turda 2 kez** (~%9). İlk kez 6/6 kapısının 6. turunda, ikincisi ayrı bir
+  6/6 kapısının 3. turunda.
+- Ardından **10 turluk** ayrı bir av koşumu (tam süit, aynı ortam):
+  **üretilemedi**.
+- `0xC0000409` Windows'ta `__fastfail` / CRT güvenlik kontrolü demek. Yığın
+  bozulması ya da `abort()` çağrısı bu kodu verir.
+
+### Elimizde olmayan şey: dump'ın baş tarafı
+
+Kapı, başarısız turda stderr'in **son 12 satırını** saklıyordu. Çökme
+dump'ında bilgi veren uç ise **baş** taraf — çöken testi adlandıran kare orada;
+kuyruk her çökmede aynı `unittest/suite.py` → `runpy` iskeleti.
+
+**Bu turda düzeltildi:** `tools/run_suite_gate.py::failure_excerpt` artık
+dump başlığını (`Windows fatal exception` / `Fatal Python error` /
+`Current thread 0x`) arıyor ve oradan **ileri** okuyor; normal bir hatada
+davranış değişmedi, hâlâ kuyruk. `tests/test_gate_reporting.py` (7 test) bunu
+tutuyor ve eski kuyruk-uygulamasının bu iddiaları düşürdüğü ayrıca gösterildi.
+
+### Elenmiş hipotez
+
+İlk tahmin **Tcl paniğiydi**: 14 test dosyası gerçek Tk kökü yaratıp yok
+ediyor, dördü thread ile birlikte, ve bir Tk yorumlayıcısının yanlış thread'de
+sonlandırılması `Tcl_AsyncDelete` paniği → `abort()` → tam olarak bu kod
+demektir.
+
+**Ama kanıt desteklemiyor:** dump `Extension modules: _cffi_backend (total: 1)`
+diyor. Tk yüklü olsaydı `_tkinter` de o listede olurdu. Üstelik süitin o
+noktasında `_hashlib`, `_socket` gibi başka `.pyd`'lerin de yüklü olması
+beklenirdi. Tek uzantı modülü görünmesi henüz açıklanmadı ve asıl ipucu
+olabilir.
+
+### Yapılacak
+
+1. Dump'ın **baş tarafını** yakala — `-X faulthandler` ile tam stderr saklayan
+   bir döngü koş. Kapının yeni `failure_excerpt`'i de artık bunu gösterecek.
+2. Kare hangi testi adlandırıyorsa oradan daralt.
+3. ~~Ortam değişkeni ihtimalini ele~~ — **aşağıdaki kanıt bunu büyük ölçüde
+   kapattı.**
+
+### Kanıt: çöküş bu turdan önce de oluyordu (temp kalıntısından)
+
+Temp'te 19 Ağustos tarihli üç `hvt-test-*` dizini duruyor. Biri **içerikli**:
+
+```
+hvt-test-4cfgt71c/  (19.08.2026 15:37)
+├── m.json
+└── veri/çalışma günü.txt
+```
+
+Bu ikisi `tests/test_cli_encoding_contract.py::OutputIsAlwaysUtf8Tests`'in
+`setUp`'ında yazdığı fixture'ın ta kendisi.
+
+Önemli olan, dizinin durması değil — **testin kendi dosyalarının** durması.
+`DiagnosticTempDir.cleanup()` adım 1'de `_unlink_all_files` ile her dosyayı
+siliyor; tanımadığı bir girdiye takılsa bile kendi dosyaları o adımda gitmiş
+olurdu. Kendi dosyaları diskteyse **`cleanup()` hiç çalışmamış** demektir:
+süreç `setUp` ile `tearDown` arasında öldü.
+
+Tarih PyInstaller'ın venv'e kurulmasından (20.08, ~20:20) **bir gün önce**.
+Yani "bu turun ortam değişikliği yaptı" açıklaması artık zayıf.
+
+**Fazla iddia etmemek adına:** kalıntı "süreç aniden bitti" diyor, "çıkış kodu
+`0xC0000409`'du" demiyor. Harici kill, uyku ya da kapı zaman aşımı da aynı izi
+bırakırdı. Kesin olan: ani sonlanma bu turdan önce de yaşandı.
+
+Diğer iki dizin **boş** — o, madde 8'in tarif ettiği "bekleyen silme" hâli,
+ayrı bir olgu.
+
+### Açıklanmayan ipucu
+
+Dump `Extension modules: _cffi_backend (total: 1)` diyor. Süitin ortasında
+`_hashlib`, `_socket`, `_tkinter` gibi başka `.pyd`'lerin de yüklü olması
+beklenir. Tek uzantı görünmesinin iki olası okuması var — çöküşün yorumlayıcı
+**sonlanması** sırasında olması (ki o sırada `sys.modules` boşaltılmıştır) ya
+da listenin sandığımız şeyi listelememesi. Ama sonlanma okuması, `Ran N tests`
+özetinin **hiç basılmamış** olmasıyla çelişiyor: o özet sonlanmadan önce
+yazılır. Çözülmedi ve muhtemelen asıl ipucu bu.
+
+**Yayın açısından:** açıklanmamış aralıklı bir abort ile sürüm çıkarmak bir
+karardır, gözden kaçma değil. README'de de böyle yazılı.

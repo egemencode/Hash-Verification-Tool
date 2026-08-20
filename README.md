@@ -8,19 +8,26 @@ local fingerprint and shows a plain-language risk summary — without
 ever uploading the file. The original CLI and the **Advanced** tab
 keep all of v1.1's hash / verify / report power.
 
-> **Status:** v1.2.0 — stable. New trust-check workflow, history,
-> settings tab. 37 passing unit tests.
+> **Status:** v2.0.0 — a security and correctness revision, with breaking
+> changes to the CLI contract. 620 passing unit tests, 0 skipped.
 
-![Güven Kontrolü ana ekranı](docs/screenshots/main.png)
+![Güven Kontrolü, koyu tema](docs/screenshots/main-dark.png)
+
+![Güven Kontrolü, açık tema](docs/screenshots/main-light.png)
+
+Both are the same build, v2.0.0, photographed through Win32 rather than
+recreated. The menu strip along the top stays light in the dark shot because
+Windows draws it and ignores what Tk is told — a limitation named here rather
+than cropped out.
 
 ---
 
-## Unreleased — what is in this working tree
+## What is new in v2.0.0
 
-The code here is **ahead of v1.2.0** and has not been released or published.
-The version string still reads `1.2.0` on purpose: nothing has shipped, and a
-number is a promise about what did. [CHANGELOG.md](CHANGELOG.md) carries the
-full account under `[Unreleased]`; the short version:
+The major number moves because the CLI contract changed, not because the
+release is large: a script that ran `verify` against an unsigned manifest and
+checked for exit `0` stops working here. [CHANGELOG.md](CHANGELOG.md) carries
+the full account under `[2.0.0]`; the short version:
 
 - **Signed manifests, end to end** — `keygen`, `sign`, `--sign-key`,
   `verify --trusted-key`, `inspect`. Private keys are encrypted with DPAPI on
@@ -45,10 +52,41 @@ full account under `[Unreleased]`; the short version:
 - **Exit codes** `4` (manifest invalid), `5` (untrusted reference), `6`
   (incomplete scan), `7` (cancelled).
 
-Known limitations, stated rather than buried: the release gate is not reliably
-green — roughly one run in ten trips over an unattributed `.tmp` file that
-appears during test cleanup, which is documented in `docs/P1-BACKLOG.md`
-item 8 rather than silenced. The `dist/` executables predate all of this.
+`dist/` now holds executables built from this source. They are checked as
+executables rather than assumed to match:
+
+```
+python tools\verify_exe_smoke.py                 # CLI, twelve behaviours, source vs EXE
+python tools\verify_exe_smoke.py --gui           # opens the window, reads its title, closes it
+```
+
+The previous build is kept beside them under `dist\eski-2026-05-24\` and is
+worth a sentence, because it is the reason that harness exists. It answered
+`--version` with the same string the current one does while having no
+`keygen`, `sign` or `inspect` at all, accepting `--algo md5` without the
+`--allow-insecure-algorithm` flag, and reporting a clean match against a
+manifest whose origin could not be established. A version string that cannot
+tell those two programs apart is not an identifier, so the harness now
+requires an executable to report the version its source tree declares — and
+running it against that old build is a supported mode
+(`--teeth dist\eski-2026-05-24\HashTool.exe`), which currently rejects it in
+10 of 12 scenarios.
+
+Known limitations, stated rather than buried. **The release gate is not
+reliably green**, in two separate ways, both recorded in `docs/P1-BACKLOG.md`
+rather than silenced:
+
+- roughly one run in ten trips over an unattributed `.tmp` file appearing
+  during test cleanup (item 8);
+- and about one round in eleven the test process does not fail — it *dies*,
+  with Windows exit code `0xC0000409` and no `Ran N tests` summary (item 12).
+  Two occurrences in twenty-two rounds, noticed while packaging v2.0.0 and
+  dated to at least a day earlier by a temp directory a killed round left
+  behind. It has not been explained, and shipping with an unexplained
+  intermittent abort in the test process is a decision, not an oversight.
+
+Neither has ever been observed affecting a hash, a verification verdict or a
+signature check. Both are failures of the *test process*.
 
 ---
 
@@ -70,6 +108,12 @@ item 8 rather than silenced. The `dist/` executables predate all of this.
 
 The original *Advanced* tab still exposes Hash / Verify / Report and
 all CLI subcommands (`hash`, `verify`, `report`) work unchanged.
+
+![v1.2.0'nin aynı ekranı](docs/screenshots/main.png)
+
+That is what the same screen looked like at v1.2.0, kept for comparison: the
+Windows 7-era chrome Tk reaches for by default, no accent on the primary
+action, no cancel button, and nothing telling you what leaves the machine.
 
 See [CHANGELOG.md](CHANGELOG.md) for v1.1 history.
 
@@ -106,24 +150,36 @@ Hash Verification Tool/
 ├── main.py                       # CLI entry point (argparse)
 ├── gui_main.py                   # GUI entry point (thin wrapper)
 ├── core/
-│   ├── __init__.py
+│   ├── __init__.py               # __version__ — the single source of it
 │   ├── hash_utils.py             # Streamed hashing + ProgressEvent
 │   ├── manifest_manager.py       # Folder manifest dataclass + JSON I/O
+│   ├── manifest_signing.py       # Ed25519 sign / verify (cryptography)
+│   ├── key_files.py              # Key file format, on disk
+│   ├── secret_store.py           # DPAPI-backed secrets (API key, keys)
+│   ├── atomic_io.py              # Write-then-rename; no half-written state
+│   ├── scan_policy.py            # What a scan may touch, and why it skips
+│   ├── scan_controller.py        # Cancellable scan driver
+│   ├── task_runner.py            # Shared background task runner
 │   ├── verifier.py               # Compare live folder vs manifest
+│   ├── baseline.py               # Reference state a verify runs against
 │   ├── reporter.py               # Console / JSON / CSV folder reports
 │   ├── file_info.py              # Human-readable single-file metadata
 │   ├── vt_client.py              # VirusTotal v3 hash lookup (no upload)
 │   ├── signature_checker.py      # Windows Authenticode via PowerShell
 │   ├── local_verify.py           # "Did this file change?" fingerprint store
-│   ├── risk_engine.py            # Düşük / Orta / Yüksek risk scoring
-│   ├── smart_summary.py          # Plain-Turkish summary builder
+│   ├── risk_engine.py            # Monotonic risk table (not a score)
+│   ├── smart_summary.py          # Plain-language summary builder
 │   ├── history_manager.py        # Last-N-scans JSON store
+│   ├── i18n.py                   # TR / EN translation table (~385 keys)
+│   ├── phrases.py                # Sentence identity + params, no words
 │   ├── trust_report.py           # JSON + HTML trust report export
 │   └── trust_pipeline.py         # Orchestrates the trust-check flow
 ├── gui/
 │   ├── __init__.py
 │   ├── app.py                    # Tk root + tab wiring + thread plumbing
-│   ├── i18n.py                   # TR / EN translation table
+│   ├── theme.py                  # Light / dark palettes and the chrome
+│   ├── trust_presenter.py        # Verdict → what the screen shows
+│   ├── i18n.py                   # Re-export shim over core.i18n
 │   └── views/
 │       ├── trust_check_view.py   # Main beginner-friendly screen
 │       ├── history_view.py       # Scan history tab
@@ -132,11 +188,16 @@ Hash Verification Tool/
 │   ├── __init__.py
 │   ├── logger.py                 # Logging helper (GUI-safe)
 │   └── settings.py               # JSON-backed settings + AppSettings
-├── tests/                        # 37 unit tests, stdlib only
+├── tests/                        # 620 unit tests, stdlib only, 0 skipped
+├── tools/
+│   ├── run_suite_gate.py         # N clean rounds or it is not green
+│   ├── verify_fix_coverage.py    # Revert each fix, demand a test fails
+│   └── verify_exe_smoke.py       # The EXE, checked as an EXE
 ├── demo.py                       # End-to-end legacy demo
-├── build_exe.bat                 # Build dist/HashTool.exe (CLI)
-├── build_gui_exe.bat             # Build dist/HashToolGUI.exe (GUI)
-├── requirements.txt
+├── build_exe.bat                 # Build + check dist/HashTool.exe (CLI)
+├── build_gui_exe.bat             # Build + check dist/HashToolGUI.exe (GUI)
+├── requirements.txt              # Runtime, all optional
+├── requirements-dev.txt          # PyInstaller, pinned
 ├── CHANGELOG.md
 ├── LICENSE
 └── README.md
@@ -146,8 +207,14 @@ Hash Verification Tool/
 
 ## Installation
 
-Requires **Python 3.10+** (uses PEP 604 `|` type unions and modern
-typing). Tested on Windows 11.
+Developed and tested on **Python 3.12, Windows 11**. Nothing in the source
+uses syntax newer than 3.10 (PEP 604 `|` unions are the newest thing in it),
+so 3.10 and 3.11 should work — but no run has been made on them, and this
+README would rather say that than imply a guarantee it has not tested.
+
+Windows only, and not by accident: the key store is DPAPI, signature checking
+is Authenticode, the theme is read from the registry and long-path handling
+goes through Win32. Those are not thin shims over something portable.
 
 ```powershell
 # 1. Clone or download the project, then:
@@ -174,8 +241,14 @@ Pre-built single-file Windows executables are published on the
 
 | File                   | Purpose | Approx. size |
 |------------------------|---------|--------------|
-| `HashTool.exe`         | CLI     | ~8 MB        |
-| `HashToolGUI.exe`      | GUI     | ~12 MB       |
+| `HashTool.exe`         | CLI     | ~12 MB       |
+| `HashToolGUI.exe`      | GUI     | ~18 MB       |
+
+They are **not code-signed**. Windows SmartScreen will warn the first time you
+run either one, and that warning is correct: nothing about an unsigned binary
+tells you who built it. Every release publishes SHA-256 digests so you can
+check the file you downloaded is the file that was built — which is, after
+all, what this tool is for.
 
 Both are single-file PyInstaller builds — no installer, no registry
 changes. Delete the file to uninstall.
@@ -418,7 +491,7 @@ Manifests are plain JSON, easy to diff in version control:
 {
   "metadata": {
     "schema_version": "1.0",
-    "tool_version": "1.2.0",
+    "tool_version": "2.0.0",
     "created_at": "2026-04-20T12:34:56+00:00",
     "algorithm": "sha256",
     "root_path": "C:/example_folder",
@@ -537,24 +610,38 @@ Printing a bare checksum needs no opt-in — that is not an integrity claim.
 Run the matching `.bat` file from the project root:
 
 ```powershell
-# GUI (no console window) — produces dist\HashToolGUI.exe (~15 MB)
+# GUI (no console window) — produces dist\HashToolGUI.exe (~18 MB)
 build_gui_exe.bat
 
-# CLI (legacy advanced tools) — produces dist\HashTool.exe (~8 MB)
+# CLI (legacy advanced tools) — produces dist\HashTool.exe (~12 MB)
 build_exe.bat
 ```
 
 Both scripts:
-- install PyInstaller on first run if it is missing,
+- use `.venv\Scripts\python.exe` when it exists rather than whatever `python`
+  PATH happens to resolve to — a bundle is built from the interpreter that
+  runs PyInstaller, so the wrong one quietly produces an EXE without the
+  dependencies,
+- install PyInstaller on first run if it is missing
+  (`requirements-dev.txt` pins the range),
 - clean previous build artefacts,
-- emit a single-file EXE under `dist\`.
+- emit a single-file EXE under `dist\`,
+- **and then check it**, because a build that succeeded is not the same claim
+  as a program that works. The CLI script runs the twelve-scenario
+  differential; the GUI script opens the window and reads its title. Either
+  one failing fails the build.
+
+Neither script passes `--hidden-import`. The GUI build used to pass fifteen of
+them, justified by a comment about "dynamically loaded" view modules — there
+are no dynamic imports anywhere in this source. Building with and without the
+flags produces bundles holding the identical set of 510 modules, `requests`,
+`windnd` and `colorama` included, because PyInstaller reads imports inside
+functions and `try`/`except` blocks too. To re-check that after a refactor,
+build twice and diff `build\HashToolGUI\PYZ-00.toc`.
 
 After building the GUI, double-click `dist\HashToolGUI.exe` to launch
 the app. Delete the EXE to uninstall — there is no installer and no
 registry footprint.
-
-Both scripts install PyInstaller on first run if it is missing and
-clean up previous build artefacts before each build.
 
 ---
 
@@ -571,16 +658,21 @@ progress-callback behaviour on both folder hashing and verification.
 
 ---
 
-## Roadmap (post-v1.1 ideas)
+## Roadmap
+
+Two entries that used to sit here — signed Ed25519 manifests and drag-and-drop
+in the GUI — shipped in v2.0.0 and have been removed rather than left looking
+like plans. A third, "macOS / Linux builds, the code is already
+platform-agnostic", was removed because it stopped being true: see the
+Installation section.
 
 - Parallel hashing for huge folders (process pool)
 - Glob-based include / exclude rules (`--exclude "*.tmp"`)
 - HMAC mode for keyed integrity verification
-- Signed manifests (Ed25519) for tamper-evident reports
 - Watch mode (`--watch`) using `watchdog`
-- Drag-and-drop support in the GUI
-- macOS / Linux GUI builds (the code is already platform-agnostic;
-  only the build scripts are Windows-specific)
+- Code signing, so the SmartScreen warning above can go away honestly
+- CI (GitHub Actions) so a build and its checks are not something one machine
+  did once
 
 ---
 

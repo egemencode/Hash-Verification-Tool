@@ -33,10 +33,11 @@ listed in :data:`ALLOWED_IDENTICAL`, each with the reason it is there.
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+from tests.support import DiagnosticTempDir
 
 try:
     import tkinter as tk
@@ -137,7 +138,7 @@ class LanguageSwitchTests(unittest.TestCase):
     """The window, before and after the switch the menu offers."""
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self._env = mock.patch.dict(
             os.environ, {"LOCALAPPDATA": str(Path(self._tmp.name) / "profile")}
         )
@@ -288,7 +289,7 @@ class SummaryFitTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self._env = mock.patch.dict(
             os.environ, {"LOCALAPPDATA": str(Path(self._tmp.name) / "profile")}
         )
@@ -367,7 +368,7 @@ class HistoryRowTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self._root = tk.Tk()
         self._root.withdraw()
 

@@ -1,0 +1,14 @@
+# Hash Verification Tool — build and check dependencies
+# ----------------------------------------------------------------------
+# Not needed to run the tool or the test suite. This file exists so that
+# building an executable is reproducible: the .bat scripts install
+# PyInstaller when it is missing, and an unpinned install is how two
+# builds of the same source end up different.
+#
+# Pinned to a major-version range for the same reason the runtime pins
+# cryptography — a breaking release of the bundler changes what ends up
+# inside the EXE, which is the one artefact no test in tests/ can see.
+#
+#   python -m pip install -r requirements-dev.txt
+# ----------------------------------------------------------------------
+pyinstaller>=6.10,<7

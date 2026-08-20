@@ -23,6 +23,8 @@ from pathlib import Path
 
 from core.risk_engine import RiskLevel
 
+from tests.support import DiagnosticTempDir
+
 try:
     import tkinter as tk
 
@@ -293,10 +295,9 @@ class RenderedColourTests(unittest.TestCase):
 
     def setUp(self) -> None:
         import os
-        import tempfile
         from unittest import mock
 
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self._env = mock.patch.dict(
             os.environ, {"LOCALAPPDATA": str(Path(self._tmp.name) / "profile")}
         )
@@ -425,7 +426,7 @@ class RenderedLegibilityTests(unittest.TestCase):
         import tempfile
         from unittest import mock
 
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self._env = mock.patch.dict(
             os.environ, {"LOCALAPPDATA": str(Path(self._tmp.name) / "profile")}
         )
@@ -541,7 +542,7 @@ class BadgeCanvasTests(unittest.TestCase):
         import tempfile
         from unittest import mock
 
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
         self._env = mock.patch.dict(
             os.environ, {"LOCALAPPDATA": str(Path(self._tmp.name) / "profile")}
         )

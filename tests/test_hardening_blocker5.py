@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -40,7 +39,7 @@ class PowerShellPathTests(unittest.TestCase):
         # When neither the Win32-reported system directory nor the Windows
         # directory yields powershell.exe we must raise — never fall back to
         # a PATH lookup.
-        with tempfile.TemporaryDirectory() as d:
+        with DiagnosticTempDir() as d:
             with mock.patch.object(sc, "_system_directory", return_value=None), \
                  mock.patch.object(sc, "_windows_directory", return_value=d):
                 with self.assertRaises(FileNotFoundError):
@@ -51,12 +50,12 @@ class PowerShellPathTests(unittest.TestCase):
         # Contract change (P0.7): the path now comes from the Win32 API, so a
         # spoofed SystemRoot no longer redirects us — it is simply ignored.
         genuine = sc._powershell_executable()
-        with tempfile.TemporaryDirectory() as d:
+        with DiagnosticTempDir() as d:
             with mock.patch.dict(os.environ, {"SystemRoot": d, "windir": d}):
                 self.assertEqual(sc._powershell_executable(), genuine)
 
     def test_missing_system_powershell_yields_controlled_error(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
+        with DiagnosticTempDir() as d:
             target = Path(d) / "f.txt"
             target.write_text("x", encoding="utf-8")
             with mock.patch.object(sc, "_is_windows", return_value=True), \
@@ -82,7 +81,7 @@ class UnknownErrorClassificationTests(unittest.TestCase):
     """A .txt is not 'signed but broken' — it simply cannot be signed."""
 
     def _classify(self, filename: str, raw_status: str) -> SignatureStatus:
-        with tempfile.TemporaryDirectory() as d:
+        with DiagnosticTempDir() as d:
             p = Path(d) / filename
             p.write_bytes(b"data")
             cp = mock.Mock()
@@ -115,7 +114,7 @@ class UnknownErrorClassificationTests(unittest.TestCase):
     @unittest.skipUnless(IS_WINDOWS, "real PowerShell integration test")
     def test_real_windows_txt_is_never_reported_as_broken_signature(self) -> None:
         # End-to-end against the real Get-AuthenticodeSignature cmdlet.
-        with tempfile.TemporaryDirectory() as d:
+        with DiagnosticTempDir() as d:
             p = Path(d) / "plain notes.txt"
             p.write_text("hello", encoding="utf-8")
             result = check_signature(str(p))
@@ -141,7 +140,7 @@ class UnknownErrorClassificationTests(unittest.TestCase):
     @unittest.skipUnless(IS_WINDOWS, "real PowerShell integration test")
     def test_real_windows_quote_and_unicode_filename(self) -> None:
         # Injection-shaped name must survive the real invocation unharmed.
-        with tempfile.TemporaryDirectory() as d:
+        with DiagnosticTempDir() as d:
             p = Path(d) / "ev'il; rm -rf ç kötü.txt"
             p.write_text("x", encoding="utf-8")
             result = check_signature(str(p))

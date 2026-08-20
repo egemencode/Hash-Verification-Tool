@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -190,7 +189,7 @@ class PowerShellResolutionTests(unittest.TestCase):
     """The interpreter path must not come from a spoofable env var."""
 
     def test_spoofed_systemroot_is_not_trusted(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
+        with DiagnosticTempDir() as d:
             fake = Path(d) / "System32" / "WindowsPowerShell" / "v1.0"
             fake.mkdir(parents=True)
             planted = fake / "powershell.exe"
@@ -221,7 +220,7 @@ class PowerShellResolutionTests(unittest.TestCase):
     def test_fails_closed_when_the_winapi_call_fails(self) -> None:
         # If the OS cannot tell us where Windows is, we must refuse — not fall
         # back to an environment variable an attacker may control.
-        with tempfile.TemporaryDirectory() as d:
+        with DiagnosticTempDir() as d:
             with mock.patch.dict(os.environ, {"SystemRoot": d, "windir": d}), \
                  mock.patch.object(sc, "_system_directory", return_value=None), \
                  mock.patch(
@@ -233,7 +232,7 @@ class PowerShellResolutionTests(unittest.TestCase):
 
     @unittest.skipUnless(IS_WINDOWS, "Windows-only")
     def test_windows_directory_ignores_env(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
+        with DiagnosticTempDir() as d:
             with mock.patch.dict(os.environ, {"SystemRoot": d, "windir": d}):
                 self.assertNotEqual(
                     Path(sc._windows_directory()).resolve(), Path(d).resolve()

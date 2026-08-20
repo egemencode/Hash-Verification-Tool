@@ -27,7 +27,6 @@ same key in both languages, which is the point of the key.
 from __future__ import annotations
 
 import json
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -36,6 +35,8 @@ from core.risk_engine import assess
 from core.signature_checker import SignatureResult, SignatureStatus
 from core.smart_summary import build_summary
 from core.vt_client import VTAnalysisStats, VTLookupResult, VTStatus
+
+from tests.support import DiagnosticTempDir
 
 
 def _vt(stats: VTAnalysisStats, status: VTStatus = VTStatus.OK) -> VTLookupResult:
@@ -130,7 +131,7 @@ class ExportedReportLanguageTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = DiagnosticTempDir()
 
     def tearDown(self) -> None:
         from gui.i18n import set_language

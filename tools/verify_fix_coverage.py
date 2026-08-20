@@ -17,7 +17,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.stdout.reconfigure(encoding="utf-8")
 
 REPO = Path(__file__).resolve().parent.parent
 PYTHON = REPO / ".venv" / "Scripts" / "python.exe"
@@ -714,6 +713,10 @@ def run_test(cwd: Path, dotted: str) -> tuple[int, str]:
 
 
 def main() -> int:
+    # Not at import time: these are ordinary modules as well as
+    # scripts, and a module that rewrites the process's stdout just by
+    # being imported makes whatever imports it order-dependent.
+    sys.stdout.reconfigure(encoding="utf-8")
     results = []
     for label, rel, find, replace, dotted in REVERTS:
         scratch = Path(tempfile.mkdtemp(prefix="teeth-"))
