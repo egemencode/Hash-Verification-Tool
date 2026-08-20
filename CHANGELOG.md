@@ -143,6 +143,27 @@ the verdict won.
   before.
 
 ### Changed
+- **The window follows the system theme.** There is a second palette now, and
+  it is a second set of decisions rather than an inversion: almost none of the
+  light colours survive on a dark ground. Which surface is the difficult one
+  flips too — dark text struggles on the darker surface, light text on the
+  lighter one — so each palette is measured against its own hardest ground
+  rather than against a fixed colour, in both directions, by the contrast
+  tests.
+
+  The accent was the sharp edge. The light accent carries white text at
+  5.38:1; the dark accent carries white at **2.01:1**, which is unreadable,
+  and black at 10.47:1. So the foreground the accent pairs with is part of the
+  palette rather than a literal, and the test checks each accent against its
+  own. A test written against `"#ffffff"` would have passed the light theme
+  and shipped an illegible primary button in the other one.
+
+  Widgets ttk styling cannot reach are painted explicitly: the log areas are
+  plain `ScrolledText`, which is a Text in a Frame with a Scrollbar and keeps
+  the Windows defaults whatever the theme says. On light that was invisible —
+  the defaults happened to match. The menu *bar* stays light: on Windows it is
+  drawn by the OS and ignores what Tk is told, which is a limitation named
+  here rather than papered over.
 - **The window is built on `clam` instead of `vista`.** `vista` is what Tk
   reaches for on Windows and it draws Windows 7-era chrome: cramped tabs,
   buttons with no real padding, and a primary action distinguishable from the
@@ -172,6 +193,14 @@ the verdict won.
   migrated and scrubbed.
 
 ### Fixed
+- **The summary box drew black text on whatever ground the theme gave it.**
+  It took its background from the palette and its foreground from Tk's
+  default. On the light theme that was invisible luck; on the dark one it is
+  black on charcoal, in the box that holds the reason for the risk verdict.
+  Nothing had ever compared a widget's two ends to each other, so the palette
+  could be spotless and every ground known while this sat in the middle of the
+  main screen. There is now a check that walks every widget in both themes and
+  requires its text to be readable against its own background.
 - **Part of the verdict was hidden at the smallest window size.** The summary
   bullets sat in a box four lines tall, and Tk does not report the lines that
   do not fit — it stops drawing them, with nothing on screen to say so. At the
@@ -292,7 +321,7 @@ the verdict won.
   no PATH fallback, no `-ExecutionPolicy Bypass`.
 
 ### Tests
-- 37 → 603, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
+- 37 → 607, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
   `PYTHONIOENCODING` unset, and under explicit UTF-8.
 - `tools/verify_fix_coverage.py` reverts each fix in a scratch copy and requires
   the test that claims to cover it to fail, so a test that asserts nothing is

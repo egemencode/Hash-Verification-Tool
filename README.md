@@ -15,7 +15,44 @@ keep all of v1.1's hash / verify / report power.
 
 ---
 
-## What's new in v1.2.0
+## Unreleased — what is in this working tree
+
+The code here is **ahead of v1.2.0** and has not been released or published.
+The version string still reads `1.2.0` on purpose: nothing has shipped, and a
+number is a promise about what did. [CHANGELOG.md](CHANGELOG.md) carries the
+full account under `[Unreleased]`; the short version:
+
+- **Signed manifests, end to end** — `keygen`, `sign`, `--sign-key`,
+  `verify --trusted-key`, `inspect`. Private keys are encrypted with DPAPI on
+  Windows, and the tool refuses to sign with a key stored where the manifest
+  it signs will travel.
+- **The GUI can do what the CLI can.** Signing from the Hash tab, a trusted
+  key on the Verify tab, and one shared decision table so the graphical path
+  is no longer the permissive one.
+- **A scan you started can be stopped** — on the Trust Check screen and, from
+  the status bar, on the Advanced tabs. Closing the window no longer leaves a
+  manifest behind for a scan you walked away from.
+- **The interface really is bilingual now.** The language menu used to
+  translate the menu and leave every screen under it in Turkish. Everything
+  the application says — including the risk verdict, the evidence rows and the
+  exported reports — follows the choice. What stays Turkish is diagnostic text
+  relaying what the OS or an API reported; that boundary is written down in
+  `docs/P1-BACKLOG.md`.
+- **Light and dark themes**, chosen from the Windows setting at startup, each
+  with its own measured palette. Every colour clears WCAG AA against its own
+  theme's hardest ground, and a test walks every widget in both to check that
+  its text is readable against its own background.
+- **Exit codes** `4` (manifest invalid), `5` (untrusted reference), `6`
+  (incomplete scan), `7` (cancelled).
+
+Known limitations, stated rather than buried: the release gate is not reliably
+green — roughly one run in ten trips over an unattributed `.tmp` file that
+appears during test cleanup, which is documented in `docs/P1-BACKLOG.md`
+item 8 rather than silenced. The `dist/` executables predate all of this.
+
+---
+
+## What was new in v1.2.0
 
 - **Güven Kontrolü tab** — pick one file, get a single Düşük / Orta /
   Yüksek risk badge plus a Turkish-first explanation.
@@ -50,7 +87,10 @@ See [CHANGELOG.md](CHANGELOG.md) for v1.1 history.
 - Streams files in 64 KiB chunks so multi-GB files do not exhaust RAM
 - Live progress reporting via a typed `ProgressEvent` callback (GUI
   progress bar, CLI `-v` debug lines, or your own consumer)
-- Bilingual GUI (Türkçe / English) with on-the-fly language switch
+- Bilingual GUI (Türkçe / English) with on-the-fly language switch — the
+  whole interface, the risk verdict and the exported reports, not just the menu
+- Light and dark themes, taken from the Windows setting at startup, each with
+  its own palette measured against WCAG AA
 - Robust error handling: missing files, permission errors, broken
   manifests and I/O failures are reported, not crashed on
 - Optional ANSI colour output (degrades gracefully if `colorama` is

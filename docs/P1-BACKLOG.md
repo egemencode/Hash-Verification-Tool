@@ -294,7 +294,7 @@ Testler: `tests/test_gui_advanced_cancel.py` (4 davranış testi), dördü de
 > `TrustCheckView._set_busy` gibi bir meşgul girişine kavuşması bir
 > kullanılabilirlik işi olarak duruyor.
 
-## 10. Koyu tema desteği yok
+## 10. ~~Koyu tema desteği yok~~ — KAPANDI
 
 `gui/theme.py` renkleri beyaz zemine göre ayarlandı ve neredeyse tamamı koyu
 zeminde AA'nın altına düşüyor (ölçüm, `#1e1e1e` zemine karşı):
@@ -311,8 +311,58 @@ Yani koyu tema "bir bayrak çevirmek" değil: **ikinci bir palet** ve Tkinter'da
 her widget için elle uygulama gerektiriyor (ttk'nın `vista`/`clam` temaları
 Windows'un koyu modunu izlemiyor).
 
-**Yapılacak:** İkinci palet + Windows tema algılama + `_apply_style` içinde
-uygulama. Kontrast testi ikinci paleti de yürüyecek şekilde genişletilmeli.
+### ✔ Uygulandı (§8)
+
+`gui/theme.py` artık iki palet tutuyor ve `apply()` açılışta Windows'a hangi
+temayı giydiğini soruyor (`AppsUseLightTheme`, `HKCU\…\Themes\Personalize`).
+Okunamazsa açık palete düşüyor: yanlış tahmin bütün pencereyi boyar.
+
+**Koyu palet, açık paletin tersi değil — ikinci bir karar kümesi.** Renkler
+tahmin edilmedi, ölçüldü; her biri kendi temasının **en zor zeminine** karşı
+5.0:1 üstünde:
+
+| Token | Açık | Koyu |
+|---|---|---|
+| `TEXT` | #444444 (8.55) | #f0f0f0 (12.42) |
+| `MUTED` | #616161 (5.43) | #b8b8b8 (7.14) |
+| `OK` | #2b742f (5.06) | #8ed48e (8.06) |
+| `ATTENTION` | #a74b00 (5.05) | #f5bb70 (8.24) |
+| `DANGER` | #c62828 (4.93) | #f79b94 (6.79) |
+| `INFO` | #1565c0 (5.04) | #9ac8f0 (8.02) |
+| `TRACE` | #6a1b9a (8.24) | #d4b3e8 (7.69) |
+
+**Zor zemin temayla yer değiştiriyor.** Açıkta metin koyu, zorlandığı yer daha
+*koyu* yüzey; koyuda metin açık, zorlandığı yer daha *açık* yüzey. İlk turda
+"zor zemin hep koyu olandır" varsayımı iki rengi AA altında göndermişti; artık
+`theme.hard_ground()` bunu hesaplıyor ve test iki yönü de ölçüyor.
+
+**Vurgu rengi keskin kenardı.** Açık vurgu beyaz metni 5.38:1'de taşıyor; koyu
+vurgu beyazı **2.01:1**'de taşıyor — okunmaz — siyahı 10.47:1'de. Bu yüzden
+vurgunun eşlik ettiği yazı rengi palete ait, `apply()` içinde sabit değil.
+`"#ffffff"` yazan bir test açık temayı geçer, diğerinde okunamaz bir birincil
+düğme gönderirdi.
+
+**ttk'nın ulaşamadığı widget'lar elle boyanıyor.** Günlük alanları düz
+`ScrolledText` — bir Frame içinde Text ve Scrollbar — ve tema ne derse desin
+Windows varsayılanlarını koruyorlar. Açık temada bu görünmezdi çünkü
+varsayılanlar zaten uyuyordu.
+
+Testler: `tests/test_gui_theme_contrast.py` iki paleti de yürüyor (16 test).
+
+> **Menü çubuğu açık kalıyor.** Windows'ta menü çubuğunu işletim sistemi
+> çiziyor ve Tk'ye söyleneni yok sayıyor; açılır menüler koyu oluyor, üstteki
+> şerit olmuyor. Tk yerel koyu menü desteği kazanana kadar böyle. Gizlemek
+> yerine adını koyuyorum.
+
+### Bu turda elle bulunan kusur
+
+`bullets_text` zeminini temadan, yazı rengini **Tk varsayılanından** alıyordu.
+Açık temada bu görünmez bir şanstı; koyuda kömür üstüne siyah — hem de risk
+hükmünün *gerekçesini* tutan kutuda. Palet kusursuz, zeminlerin hepsi biliniyor
+olmasına rağmen kimse bir widget'ın **iki ucunu birbiriyle** karşılaştırmıyordu.
+
+Artık karşılaştırıyor: `RenderedLegibilityTests` iki temada da her widget'ı
+gezip yazısının kendi zemininde okunabildiğini şart koşuyor.
 
 ## 11. ~~Sonuç metni çekirdekten geliyor ve hâlâ tek dilli~~ — KAPANDI
 

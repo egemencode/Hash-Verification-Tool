@@ -98,16 +98,18 @@ def decode_dropped_path(raw: bytes | str) -> str:
     return raw.decode("mbcs", errors="replace")
 
 
-# Risk-level → (badge background, i18n key for the badge text).
+# Risk level → the i18n key for its badge text.
 #
-# The key rather than the text: this table is built once at import, and a
-# label resolved here would be frozen in whichever language happened to be
-# active at that moment — which is not the language the user picks later.
-RISK_PRESENTATION: dict[str, tuple[str, str]] = {
-    RiskLevel.LOW.value:     (theme.risk_colour(RiskLevel.LOW.value), "risk.badge.low"),
-    RiskLevel.MEDIUM.value:  (theme.risk_colour(RiskLevel.MEDIUM.value), "risk.badge.medium"),
-    RiskLevel.HIGH.value:    (theme.risk_colour(RiskLevel.HIGH.value), "risk.badge.high"),
-    RiskLevel.UNKNOWN.value: (theme.risk_colour(RiskLevel.UNKNOWN.value), "risk.badge.unknown"),
+# Keys, and no colours at all. This table is built once at import, and both
+# halves would be frozen there: the label in whichever language was active
+# when Python first read the file, and the colour in whichever palette — both
+# chosen later, when the window is built. So the table holds the one thing
+# that does not change, and risk_presentation() looks up the rest.
+RISK_BADGE_KEYS: dict[str, str] = {
+    RiskLevel.LOW.value:     "risk.badge.low",
+    RiskLevel.MEDIUM.value:  "risk.badge.medium",
+    RiskLevel.HIGH.value:    "risk.badge.high",
+    RiskLevel.UNKNOWN.value: "risk.badge.unknown",
 }
 
 
@@ -142,11 +144,9 @@ def wrap_to_column(label: ttk.Label) -> None:
 
 
 def risk_presentation(level: str) -> tuple[str, str]:
-    """Badge colour and translated label for *level*."""
-    colour, key = RISK_PRESENTATION.get(
-        level, RISK_PRESENTATION[RiskLevel.UNKNOWN.value]
-    )
-    return colour, t(key)
+    """Badge colour and translated label for *level*, both looked up now."""
+    key = RISK_BADGE_KEYS.get(level, RISK_BADGE_KEYS[RiskLevel.UNKNOWN.value])
+    return theme.risk_colour(level), t(key)
 
 
 # Signature states the panel spells out. Unlike the History column's five
@@ -336,9 +336,13 @@ class TrustCheckView(ttk.Frame):
             height=4,
             wrap="word",
             bd=0,
-            background=self._bg(frame),
             font=theme.FONT_UI,
         )
+        # Took its ground from the theme and its text from Tk's default, which
+        # is black. On light that was invisible luck; on dark it is black text
+        # on a dark card. The summary is the point of this screen.
+        theme.style_text_area(self.bullets_text)
+        self.bullets_text.configure(background=self._bg(frame))
         self.bullets_text.grid(row=1, column=1, sticky="ew", pady=(8, 8))
         self.bullets_text.configure(state="disabled")
         # Narrowing the window re-wraps the sentences, so what fits changes

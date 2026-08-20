@@ -84,7 +84,11 @@ log = get_logger("gui")
 POLL_INTERVAL_MS = 100
 
 # Tag → foreground colour for the verification result tree.
-STATUS_COLORS = dict(theme.RESULT_COLOUR)
+# Which rows get a colour. The colours themselves are looked up when the
+# tags are configured, not here: this module is imported before the
+# application has asked Windows which theme it is wearing, so a table
+# built now would hold the light palette whatever the window ends up.
+STATUS_TAGS = theme.RESULT_STATUSES
 
 # Max visible path length in the status bar before we truncate with an
 # ellipsis prefix. Keeps the bar from reflowing on very deep trees.
@@ -281,6 +285,8 @@ class HashToolApp(tk.Tk):
         helpmenu.add_command(label=t("menu.about"), command=self._show_about)
         menubar.add_cascade(label=t("menu.help"), menu=helpmenu)
 
+        for menu in (menubar, filemenu, settingsmenu, langmenu, helpmenu):
+            theme.style_menu(menu)
         self.config(menu=menubar)
         self._menubar = menubar
 
@@ -726,6 +732,7 @@ class HashTab(_BaseTab):
 
         ttk.Label(self, text=t("hash.result")).grid(row=7, column=0, sticky="w")
         self.output_area = ScrolledText(self, height=18, wrap="word", font=theme.FONT_MONO)
+        theme.style_text_area(self.output_area)
         self.output_area.grid(row=8, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
         self.rowconfigure(8, weight=1)
 
@@ -963,6 +970,7 @@ class VerifyTab(_BaseTab):
 
         ttk.Label(self, text=t("verify.summary")).grid(row=6, column=0, sticky="w")
         self.summary = ScrolledText(self, height=7, wrap="word", font=theme.FONT_MONO)
+        theme.style_text_area(self.summary)
         self.summary.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(4, 6))
 
         ttk.Label(self, text=t("verify.details")).grid(row=8, column=0, sticky="w")
@@ -974,7 +982,8 @@ class VerifyTab(_BaseTab):
         self.tree.column("status", width=130, anchor="w", stretch=False)
         self.tree.column("path", anchor="w")
         self.tree.grid(row=9, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
-        for tag, color in STATUS_COLORS.items():
+        for tag in STATUS_TAGS:
+            color = theme.result_colour(tag)
             self.tree.tag_configure(tag, foreground=color)
         self.rowconfigure(9, weight=1)
 
@@ -1172,6 +1181,7 @@ class ReportTab(_BaseTab):
 
         ttk.Label(self, text=t("report.log")).grid(row=4, column=0, sticky="w")
         self.output_area = ScrolledText(self, height=16, wrap="word", font=theme.FONT_MONO)
+        theme.style_text_area(self.output_area)
         self.output_area.grid(row=5, column=0, columnspan=3, sticky="nsew", pady=(4, 0))
         self.rowconfigure(5, weight=1)
 

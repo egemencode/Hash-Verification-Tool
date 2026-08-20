@@ -23,7 +23,6 @@ from gui import theme
 from gui.i18n import t
 
 
-_LEVEL_COLOR = {level.value: theme.risk_colour(level.value) for level in RiskLevel}
 
 
 def level_label(level: str) -> str:
@@ -104,8 +103,13 @@ class HistoryView(ttk.Frame):
             self.tree.heading(col, text=t(f"history.col.{col}"))
             self.tree.column(col, width=width, anchor=anchor, stretch=(col == "path"))
 
-        for level, color in _LEVEL_COLOR.items():
-            self.tree.tag_configure(f"risk-{level}", foreground=color)
+        # Looked up here rather than at import: the palette is chosen when
+        # the window is built, which is after this module was read.
+        for level in RiskLevel:
+            self.tree.tag_configure(
+                f"risk-{level.value}",
+                foreground=theme.risk_colour(level.value),
+            )
 
         self.tree.grid(row=1, column=0, sticky="nsew")
 

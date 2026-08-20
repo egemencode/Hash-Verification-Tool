@@ -301,14 +301,14 @@ REVERTS = [
     # A palette module nothing imports fixes nothing, and the failing colours
     # were literals in the views, not in any shared place.
     ("the risk palette comes from the theme", "gui/views/history_view.py",
-     "_LEVEL_COLOR = {level.value: theme.risk_colour(level.value) for level in RiskLevel}\n",
-     "_LEVEL_COLOR = {level.value: \"#ef6c00\" for level in RiskLevel}\n",
+     "                foreground=theme.risk_colour(level.value),\n",
+     "                foreground=\"#ef6c00\",\n",
      "tests.test_gui_theme_contrast.RenderedColourTests"
      ".test_every_colour_a_screen_renders_is_legible"),
 
     ("the verify rows come from the theme", "gui/app.py",
-     "STATUS_COLORS = dict(theme.RESULT_COLOUR)\n",
-     "STATUS_COLORS = {\"modified\": \"#e65100\"}\n",
+     "            color = theme.result_colour(tag)\n",
+     "            color = \"#e65100\"\n",
      "tests.test_gui_theme_contrast.RenderedColourTests"
      ".test_the_screens_take_their_colours_from_the_theme"),
 
@@ -327,8 +327,8 @@ REVERTS = [
     # classes a safe default, so the failure this guards against is a chosen
     # colour rather than a forgotten one.
     ("every widget sits on a measured ground", "gui/theme.py",
-     "    style.configure(\"Treeview\", background=SURFACE_FIELD,\n",
-     "    style.configure(\"Treeview\", background=\"#dcdad5\",\n",
+     "    style.configure(\"Treeview\", background=SURFACE_FIELD, foreground=TEXT,\n",
+     "    style.configure(\"Treeview\", background=\"#dcdad5\", foreground=TEXT,\n",
      "tests.test_gui_theme_contrast.BadgeCanvasTests"
      ".test_every_widget_sits_on_a_ground_the_palette_knows"),
 
@@ -347,14 +347,14 @@ REVERTS = [
     # The chrome introduced a colour the palette walk cannot see: the accent
     # is a button ground in one place and tab text in another.
     ("the accent is legible both ways", "gui/theme.py",
-     "ACCENT = \"#0f6cbd\"",
-     "ACCENT = \"#7fb3e0\"",
+     '        "ACCENT": "#0f6cbd",         # 5.38:1 as text on the field ground',
+     '        "ACCENT": "#7fb3e0",',
      "tests.test_gui_theme_contrast.ChromeContrastTests"
      ".test_the_accent_is_legible_in_both_directions"),
 
     ("button labels survive the button face", "gui/theme.py",
-     "_BUTTON = \"#fbfbfb\"",
-     "_BUTTON = \"#4a4a4a\"",
+     '        "BUTTON": "#fbfbfb",',
+     '        "BUTTON": "#4a4a4a",',
      "tests.test_gui_theme_contrast.ChromeContrastTests"
      ".test_body_text_survives_the_button_face"),
 
@@ -396,8 +396,8 @@ REVERTS = [
      ".test_the_end_state_cards_translate"),
 
     ("the risk badge label is looked up", "gui/views/trust_check_view.py",
-     'RiskLevel.HIGH.value:    (theme.risk_colour(RiskLevel.HIGH.value), "risk.badge.high"),',
-     'RiskLevel.HIGH.value:    (theme.risk_colour(RiskLevel.HIGH.value), "Yüksek Risk"),',
+     '    RiskLevel.HIGH.value:    "risk.badge.high",',
+     '    RiskLevel.HIGH.value:    "Yüksek Risk",',
      "tests.test_gui_language_coverage.ViewAuthoredLabelTests"
      ".test_the_risk_badge_label_translates"),
 
@@ -451,6 +451,56 @@ REVERTS = [
      '            "Dosyanız yüklenmez. Yalnızca dosyanın SHA-256 ozeti VirusTotala "',
      "tests.test_gui_language_coverage.PrivacyNoticeTests"
      ".test_the_turkish_notice_is_the_one_the_pipeline_states"),
+
+    ("the window itself takes the palette", "gui/theme.py",
+     "        root.configure(background=SURFACE)\n",
+     "        pass\n",
+     "tests.test_gui_theme_contrast.DarkBadgeCanvasTests"
+     ".test_every_widget_sits_on_a_ground_the_palette_knows"),
+
+    # --- the second palette -----------------------------------------------
+    ("the dark accent does not take white text", "gui/theme.py",
+     '        "ACCENT_TEXT": "#000000",    # 10.47:1 on ACCENT\n',
+     '        "ACCENT_TEXT": "#ffffff",\n',
+     "tests.test_gui_theme_contrast.ChromeContrastTests"
+     ".test_the_accent_is_legible_in_both_directions"),
+
+    ("the dark palette is measured against its own hard ground", "gui/theme.py",
+     '        "MUTED": "#b8b8b8",          # 7.14:1\n',
+     '        "MUTED": "#616161",\n',
+     "tests.test_gui_theme_contrast.ThemeContrastTests"
+     ".test_every_text_colour_is_legible_on_the_hard_ground"),
+
+    ("the dark theme is not the light one renamed", "gui/theme.py",
+     '        "TRACE": "#d4b3e8",          # 7.69:1\n',
+     '        "TRACE": "#6a1b9a",\n',
+     "tests.test_gui_theme_contrast.ThemeContrastTests"
+     ".test_the_two_palettes_are_actually_different"),
+
+    ("a screen that stops following the palette is caught", "gui/views/history_view.py",
+     "                foreground=theme.risk_colour(level.value),\n",
+     '                foreground="#2b742f",\n',
+     "tests.test_gui_theme_contrast.RenderedColourTests"
+     ".test_the_two_screens_colour_a_risk_level_the_same"),
+
+    # The defect this one models actually happened, by hand, in this round:
+    # a Text that took its ground from the theme and its foreground from Tk.
+    ("no widget draws text on a ground it cannot be read against",
+     "gui/views/trust_check_view.py",
+     "        theme.style_text_area(self.bullets_text)\n",
+     "",
+     "tests.test_gui_theme_contrast.RenderedLegibilityTests"
+     ".test_no_widget_draws_text_it_cannot_be_read_against"),
+
+    # Against the dark class specifically. On light this revert changes
+    # nothing observable, because Tk's defaults for a plain Text — white on
+    # SystemButtonFace — are the light palette. That coincidence is exactly
+    # why the defect was invisible until there was a second theme.
+    ("plain Tk widgets follow the theme too", "gui/app.py",
+     "        theme.style_text_area(self.summary)\n",
+     "",
+     "tests.test_gui_theme_contrast.DarkBadgeCanvasTests"
+     ".test_every_widget_sits_on_a_ground_the_palette_knows"),
 
     # --- what the application chooses to say ------------------------------
     ("policy notices are looked up", "core/scan_policy.py",
