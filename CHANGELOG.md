@@ -50,12 +50,43 @@ claim, which turned out to be less than it looked.
   machine**". Recorded as item 13 in `docs/P1-BACKLOG.md` rather than fixed
   wholesale.
 
+### Verified on the runner
+- The second CI run turned 13 failures into **3**, and the skip is gone: 627
+  tests ran there, none skipped. The ten path-identity fixes hold on the
+  machine that found them.
+- Backlog item 7 has its evidence at last. This desktop cannot create a file
+  symlink (`WinError 1314`, Developer Mode absent from the registry, measured
+  again), so the containment test had only ever exercised its directory-junction
+  branch here. The runner can, and the test passed there — the rule that a link
+  cannot pull content in from outside the scanned root is now checked for real
+  file symlinks, not only for junctions.
+
+### Fixed: the tool was discarding its own diagnosis
+- `signature_checker` kept only the *first line* of a failing PowerShell's
+  stderr. PowerShell spreads an error over several lines and puts the useful
+  half after the first, so the message a user saw stopped mid-sentence. This is
+  how it reached CI:
+
+      PowerShell hatası: Get-AuthenticodeSignature : The
+      'Get-AuthenticodeSignature' command was found in the module
+
+  The clause naming why the module could not be loaded — the only part that
+  identified the machine's problem — was thrown away by us, not by the log.
+  `_error_summary()` now joins the explanatory lines, stops at PowerShell's
+  console furniture (`At line:`, `+`, `CategoryInfo`) and bounds the result, so
+  the message stays one readable line and says what happened.
+
 ### Still open
-- Three Authenticode tests fail on Windows Server 2025. Not diagnosed; a fix
-  cannot be verified without another runner run.
-- Backlog item 7 (file symlink containment) is testable on the runner, which
-  can create file symlinks — this desktop cannot, measured again: `WinError
-  1314`, Developer Mode absent from the registry.
+- Signature checking does not work at all on the runner: PowerShell cannot load
+  `Microsoft.PowerShell.Security`. The tool fails closed — it reports ERROR, not
+  "unsigned" and not "valid" — so no verdict is wrong, but the feature is
+  absent there. Two causes were proposed and **both were measured and refuted**:
+  execution policy (`Restricted` still works here) and `PSModulePath` (emptying
+  it or pointing it elsewhere still works). The deliberate decision to run
+  without `-ExecutionPolicy Bypass` was left standing rather than reverted on a
+  guess. Item 14; the next CI run will carry the full message.
+- The three tests are left failing there on purpose. Loosening them to pass
+  would hide a real environmental limitation.
 
 ## [2.0.0] — 2026-08-20
 
@@ -388,7 +419,7 @@ now requires an executable to report the version its source tree declares.
   no PATH fallback, no `-ExecutionPolicy Bypass`.
 
 ### Tests
-- 37 → 627, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
+- 37 → 632, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
   `PYTHONIOENCODING` unset, and under explicit UTF-8.
 - `tools/verify_fix_coverage.py` reverts each fix in a scratch copy and requires
   the test that claims to cover it to fail, so a test that asserts nothing is

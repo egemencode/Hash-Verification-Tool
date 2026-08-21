@@ -791,11 +791,13 @@ yapılmalı, **ve fixture reddetmenin gerçekten ateşlendiğini kendisi
 doğrulamalı**. İkincisi olmadan, fixture'ın sessizce çalışmadığı bir sonraki
 makinede aynı sekiz test yine boş yere geçer.
 
-### B. Authenticode beklentileri Windows sürümüne bağlı (3 test)
+### B. Authenticode testleri (3 test) — **madde 14'e taşındı**
 
-`test_hardening_blocker5.py::UnknownErrorClassificationTests` gerçek bir
-Windows sistem ikilisinin imzasını kontrol ediyor. Server 2025'te düştü.
-İmza altyapısı ya da seçilen ikili sürüme özgü.
+İlk okumada "Windows sürümüne bağlı beklenti" sanılmıştı. Değil: imza kontrolü
+o makinede **hiç** çalışmıyor, çünkü PowerShell `Microsoft.PowerShell.Security`
+modülünü yükleyemiyor. Kendi maddesini hak edecek kadar ayrı bir konu —
+**madde 14**'e bakın. Madde 13'ün doğrulama koşumundan sonra runner'da kalan
+tek hata kümesi bu üçü.
 
 ### C ve D de aynı kök sebepmiş — **13 hatanın 10'u tek bir kalıp**
 
@@ -907,3 +909,74 @@ varsayımı. Ama A kümesi, yeşil görünürken hiçbir şey sınamayan sekiz t
 demek, ve bu suite'in en çok korktuğu şey tam olarak budur.
 
 **Koşum:** https://github.com/egemencode/Hash-Verification-Tool/actions/runs/32469508791
+
+---
+
+## 14. İmza kontrolü GitHub runner'ında hiç çalışmıyor — sebep bilinmiyor
+
+Madde 13'ün doğrulama koşumundan sonra runner'da kalan **tek** hata kümesi bu:
+`tests/test_hardening_blocker5.py::UnknownErrorClassificationTests`'in üç
+gerçek-PowerShell testi. İmzalı bir sistem ikilisi için beklenen
+`SIGNED_VALID` yerine `SignatureStatus.ERROR` dönüyor; imzasız bir `.txt` için
+de `NOT_APPLICABLE`/`UNSIGNED` yerine `ERROR`.
+
+PowerShell'in söylediği:
+
+```
+Get-AuthenticodeSignature : The 'Get-AuthenticodeSignature' command was found
+in the module 'Microsoft.PowerShell.Security', but the module could not be
+loaded. For more information, run 'Import-Module Microsoft.PowerShell.Security'.
+```
+
+### Ürün açısından: fail-closed, yani güvenlik gerilemesi yok
+
+Araç `ERROR` diyor — "imzasız" ya da "geçerli" demiyor. Yanlış bir hüküm
+üretmiyor; **özellik o makinede yok oluyor**. Kısıtlayıcı yapılandırmalı her
+Windows'ta imza kontrolü sessizce devre dışı kalabilir demektir ve bu, bir
+güven aracı için önemsiz değil.
+
+### İki hipotez kuruldu ve **ikisi de ölçülüp çürütüldü**
+
+1. **Çalıştırma politikası.** Kodda bilinçli bir karar duruyor:
+   `-ExecutionPolicy Bypass` kaldırılmış, gerekçe "`-Command` dizesini politika
+   kapılamaz". Modül yüklemenin kapılanabildiği düşünülünce makul bir şüpheydi.
+   **Ölçüldü:** bu makinede `-ExecutionPolicy Restricted` ile bile
+   `Get-AuthenticodeSignature` çalışıyor (`Valid`). Hipotez düştü.
+2. **`PSModulePath`.** Runner bu değişkeni ağır biçimde değiştiriyor.
+   **Ölçüldü:** değişken boşaltılınca da, var olmayan bir dizini gösterince de
+   komut çalışıyor — PowerShell yerleşik modül yoluna düşüyor. Hipotez düştü.
+
+Üçüncü bir tahmin yürütülüp **belgelenmiş güvenlik kararı geri alınmadı.**
+Ölçülmemiş bir gerekçeyle `Bypass`'ı geri koymak, tam olarak bu dalın
+yasakladığı "güvenliği sessizce geriye uyumluluğa değişmek" hamlesi olurdu.
+
+### Teşhisi engelleyen şey ürünün kendisiydi — düzeltildi
+
+`core/signature_checker.py` hatanın **yalnız ilk satırını** saklıyordu
+(`err[0]`). PowerShell hatayı çok satıra yayıyor ve bilgilendirici yarısı
+sonraki satırlarda. CI logunda görülen buydu:
+
+```
+PowerShell hatası: Get-AuthenticodeSignature : The
+'Get-AuthenticodeSignature' command was found in the module
+```
+
+Cümle orada bitiyor. Sebebi adlandıran kısmı log değil, **biz** atmışız.
+
+`_error_summary()` eklendi: boş olmayan satırları birleştiriyor, PowerShell'in
+konsol mobilyasında (`At line:`, `+`, `CategoryInfo`,
+`FullyQualifiedErrorId`) kesiyor ve 500 karakterle sınırlıyor. Mesaj tek satır
+kalıyor — durum çubuğunda ve rapor alanında görüntüleniyor.
+Testler: `PowerShellErrorReportingTests` (5), düzeltmeden önce 3'ü kırmızıydı.
+
+### Yapılacak
+
+1. CI'ı bir kez daha koştur; mesaj artık **tam** geleceği için modülün neden
+   yüklenemediği doğrudan okunabilir olacak.
+2. Sebep belli olunca kararı ver: ortam sorunuysa belgelenir, üründe
+   düzeltilebilir bir şeyse düzeltilir. **`Bypass` kararı ancak ölçümle
+   değiştirilir.**
+
+> Testler runner'da kırmızı bırakıldı. Onları o ortamda geçecek şekilde
+> gevşetmek, gerçek bir ortam kısıtını gizlemek olurdu — ve bu suite'in
+> tamamı, tam da bunu yapmamak üzerine kurulu.

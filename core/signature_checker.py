@@ -144,6 +144,49 @@ def _system_directory() -> Optional[str]:
     return buf.value if length else None
 
 
+#: Where PowerShell stops explaining and starts quoting itself. Everything
+#: from here on is the offending line, the caret art and the CategoryInfo /
+#: FullyQualifiedErrorId block — console furniture, not a reason.
+_PS_NOISE_PREFIXES = ("At line:", "At char:", "+", "CategoryInfo",
+                      "FullyQualifiedErrorId")
+
+#: The message is rendered in a status bar and written into a report field,
+#: so it has to stay one bounded line.
+_ERROR_SUMMARY_LIMIT = 500
+
+
+def _error_summary(completed) -> str:
+    """One readable line out of PowerShell's multi-line complaint.
+
+    This used to keep ``stderr.splitlines()[0]`` and nothing else, which is
+    where PowerShell happens to break the *first* sentence, not where the
+    sentence ends. A CI run produced
+
+        PowerShell hatası: Get-AuthenticodeSignature : The
+        'Get-AuthenticodeSignature' command was found in the module
+
+    and stopped — the clause naming why the module could not be loaded, the
+    only part that identified the machine's problem, was discarded here rather
+    than by the log that carried it.
+    """
+    raw = (getattr(completed, "stderr", "") or getattr(completed, "stdout", "")
+           or "")
+    kept: list[str] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(_PS_NOISE_PREFIXES):
+            break
+        kept.append(line)
+    summary = " ".join(kept)
+    if not summary:
+        return "bilinmiyor"
+    if len(summary) > _ERROR_SUMMARY_LIMIT:
+        summary = summary[:_ERROR_SUMMARY_LIMIT - 1].rstrip() + "…"
+    return summary
+
+
 def _powershell_executable() -> str:
     """
     Return a verified, absolute path to the *system* ``powershell.exe``.
@@ -258,12 +301,11 @@ def check_signature(file_path: str | Path, timeout: float = 15.0) -> SignatureRe
         )
 
     if completed.returncode != 0:
-        # ExecutionPolicy or a parsing error — surface the message but
-        # do not treat the file as 'unsigned' (which would be a lie).
-        err = (completed.stderr or completed.stdout or "").strip().splitlines()
+        # A policy, environment or parsing problem — surface it, but do not
+        # treat the file as 'unsigned', which would be a lie.
         return SignatureResult(
             status=SignatureStatus.ERROR,
-            message=f"PowerShell hatası: {err[0] if err else 'bilinmiyor'}",
+            message=f"PowerShell hatası: {_error_summary(completed)}",
         )
 
     stdout = (completed.stdout or "").strip()

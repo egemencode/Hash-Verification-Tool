@@ -9,7 +9,7 @@ ever uploading the file. The original CLI and the **Advanced** tab
 keep all of v1.1's hash / verify / report power.
 
 > **Status:** v2.0.0 — a security and correctness revision, with breaking
-> changes to the CLI contract. 627 passing unit tests, 0 skipped.
+> changes to the CLI contract. 632 passing unit tests, 0 skipped.
 
 ![Güven Kontrolü, koyu tema](docs/screenshots/main-dark.png)
 
@@ -188,7 +188,7 @@ Hash Verification Tool/
 │   ├── __init__.py
 │   ├── logger.py                 # Logging helper (GUI-safe)
 │   └── settings.py               # JSON-backed settings + AppSettings
-├── tests/                        # 627 unit tests, stdlib only, 0 skipped
+├── tests/                        # 632 unit tests, stdlib only, 0 skipped
 ├── tools/
 │   ├── run_suite_gate.py         # N clean rounds or it is not green
 │   ├── verify_fix_coverage.py    # Revert each fix, demand a test fails

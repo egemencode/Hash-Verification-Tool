@@ -328,3 +328,71 @@ class CorruptStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PowerShellErrorReportingTests(unittest.TestCase):
+    """When the signature check fails for an environmental reason, the reason
+    has to survive into the message.
+
+    PowerShell writes an error across several lines and puts the useful half
+    on the ones after the first. Keeping only ``err[0]`` produced messages
+    that stop mid-sentence — a CI run reported
+
+        PowerShell hatası: Get-AuthenticodeSignature : The
+        'Get-AuthenticodeSignature' command was found in the module
+
+    and the part naming *why* the module could not be loaded, which is the
+    only part that would have identified the machine's problem, was thrown
+    away by us rather than by the log.
+    """
+
+    #: A real multi-line PowerShell error, of the shape that caused this.
+    STDERR = (
+        "Get-AuthenticodeSignature : The 'Get-AuthenticodeSignature' command "
+        "was found in the module\n"
+        "'Microsoft.PowerShell.Security', but the module could not be loaded. "
+        "For more information, run\n"
+        "'Import-Module Microsoft.PowerShell.Security'.\n"
+        "At line:1 char:2\n"
+    )
+
+    def _failing_run(self):
+        completed = mock.Mock()
+        completed.returncode = 1
+        completed.stderr = self.STDERR
+        completed.stdout = ""
+        return completed
+
+    def _check(self):
+        with mock.patch.object(sc, "_powershell_executable", return_value="ps.exe"), \
+             mock.patch.object(sc.subprocess, "run", return_value=self._failing_run()):
+            return sc.check_signature(__file__)
+
+    def test_the_reason_reaches_the_message(self) -> None:
+        result = self._check()
+        self.assertEqual(result.status, sc.SignatureStatus.ERROR)
+        self.assertIn("could not be loaded", result.message)
+
+    def test_the_remedy_reaches_the_message(self) -> None:
+        """The line telling an operator what to do is the point of keeping it."""
+        self.assertIn("Import-Module", self._check().message)
+
+    def test_the_message_stays_one_line(self) -> None:
+        """It is rendered in a status bar and a report field, not a console."""
+        self.assertNotIn("\n", self._check().message)
+
+    def test_a_long_error_is_bounded(self) -> None:
+        long_stderr = "x" * 5000
+        with mock.patch.object(sc, "_powershell_executable", return_value="ps.exe"):
+            completed = mock.Mock(returncode=1, stderr=long_stderr, stdout="")
+            with mock.patch.object(sc.subprocess, "run", return_value=completed):
+                result = sc.check_signature(__file__)
+        self.assertLess(len(result.message), 700, "an unbounded error was pasted in")
+
+    def test_an_empty_error_still_says_something(self) -> None:
+        with mock.patch.object(sc, "_powershell_executable", return_value="ps.exe"):
+            completed = mock.Mock(returncode=1, stderr="", stdout="")
+            with mock.patch.object(sc.subprocess, "run", return_value=completed):
+                result = sc.check_signature(__file__)
+        self.assertEqual(result.status, sc.SignatureStatus.ERROR)
+        self.assertTrue(result.message.strip())

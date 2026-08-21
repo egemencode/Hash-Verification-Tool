@@ -686,6 +686,17 @@ REVERTS[-1] = (
     ".test_single_file_manifest_reads_the_file_once",
 )
 
+# Reverting to the first-line-only summary is the exact shape of the defect a
+# CI run exposed: the message stops before the clause that explains it.
+REVERTS.append((
+    "the whole PowerShell error, not its first line", "core/signature_checker.py",
+    "            message=f\"PowerShell hatası: {_error_summary(completed)}\",\n",
+    "            message=\"PowerShell hatası: \" + ((completed.stderr or "
+    "completed.stdout or \"\").strip().splitlines() or [\"bilinmiyor\"])[0],\n",
+    "tests.test_hardening_blocker5.PowerShellErrorReportingTests"
+    ".test_the_remedy_reaches_the_message",
+))
+
 
 def copy_tree(dest: Path) -> None:
     for item in REPO.iterdir():
