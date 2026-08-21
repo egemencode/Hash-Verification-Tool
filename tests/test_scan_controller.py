@@ -14,7 +14,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from tests.support import DiagnosticTempDir
+from tests.support import DiagnosticTempDir, same_path
 from core.scan_controller import ScanController, ScanState
 
 
@@ -130,7 +130,13 @@ class ResultIdentityTests(_Tree):
         self.assertEqual(self.rec.rendered, [], "a stale result was rendered")
         self.assertIsNone(self.ctl.last_result)
         self.assertEqual(self.ctl.state, ScanState.SELECTED)
-        self.assertEqual(self.ctl.selected_path, str(self.b))
+        # same_path, not assertEqual: select() stores Path(p).resolve(), so
+        # comparing against the raw spelling only holds while the raw spelling
+        # happens to be canonical.
+        self.assertTrue(
+            same_path(self.ctl.selected_path, self.b),
+            f"selection is {self.ctl.selected_path}, expected {self.b}",
+        )
 
     def test_3_rescan_of_a_missing_file_does_not_scan_the_old_one(self) -> None:
         self.ctl.select(str(self.a))
@@ -140,8 +146,12 @@ class ResultIdentityTests(_Tree):
         gone = self.root / "deleted.bin"
         started = self.ctl.rescan(str(gone))
         self.assertIsNone(started, "a rescan of a missing file started a scan")
-        self.assertNotEqual(
-            self.ctl.selected_path, str(self.a),
+        # The negative form is the one that quietly rots: assertNotEqual
+        # against a raw spelling passes on any spelling difference, so on a
+        # machine that normalises the path differently it would keep passing
+        # even if the controller really had fallen back to A.
+        self.assertFalse(
+            same_path(self.ctl.selected_path, self.a),
             "the previously selected file would have been scanned instead",
         )
         self.assertEqual(self.ctl.state, ScanState.ERROR)

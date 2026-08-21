@@ -22,6 +22,42 @@ from gui.views.trust_check_view import decode_dropped_path
 from tests.support import DiagnosticTempDir
 
 
+def _ansi_only_stem(case: unittest.TestCase) -> str:
+    """A file name this machine's ANSI code page can spell in bytes that are
+    *not* valid UTF-8.
+
+    Both halves matter. The name has to encode under ``mbcs``, or there are no
+    ANSI bytes to hand the decoder; and those bytes have to be invalid UTF-8,
+    or the hazard under test — a UTF-8 decode raising inside a ctypes callback
+    where nothing catches it — cannot arise.
+
+    It used to be a fixed Turkish name and a ``skipTest`` when that name did
+    not fit. On a machine whose ANSI code page is 1252 (a GitHub Windows
+    runner, for one) ``ş`` and ``ı`` do not exist, so the test skipped —
+    reporting "scenario not set up" for a scenario that is perfectly
+    reachable there with different letters. This suite refuses skips, and the
+    honest way to keep that promise is to build the fixture the machine can
+    actually hold rather than to give up on it.
+    """
+    for stem in ("şarkı çalışma", "grüße tåg", "café ñandú", "éàè"):
+        try:
+            raw = stem.encode("mbcs")
+        except UnicodeEncodeError:
+            continue  # not in this code page — try the next spelling
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return stem  # encodable, and not valid UTF-8: exactly the case
+    case.fail(
+        "no candidate name is both encodable in this machine's ANSI code page "
+        "and invalid as UTF-8, which means mbcs here *is* UTF-8 and the defect "
+        "this test describes cannot occur. That is a real answer, but it is "
+        "not one a test in this suite can give — move the check to tools/, "
+        "the way verify_exe_smoke.py is kept out of tests/."
+    )
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
 class DecodeDroppedPathTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = DiagnosticTempDir()
@@ -81,12 +117,9 @@ class DecodeDroppedPathTests(unittest.TestCase):
         # Windows — not UTF-8. Decoding them as UTF-8 does not merely mangle
         # the name, it raises, and the exception unwinds into a ctypes callback
         # where nothing catches it: the drop silently does nothing at all.
-        target = self.root / "şarkı çalışma.txt"
+        target = self.root / (_ansi_only_stem(self) + ".txt")
         target.write_text("x", encoding="utf-8")
-        try:
-            ansi = str(target).encode("mbcs")
-        except UnicodeEncodeError:  # pragma: no cover - non-Windows
-            self.skipTest("no ANSI code page on this platform")
+        ansi = str(target).encode("mbcs")
 
         decoded = decode_dropped_path(ansi)
         self.assertTrue(

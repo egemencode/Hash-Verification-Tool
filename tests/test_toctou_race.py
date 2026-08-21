@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.support import DiagnosticTempDir
+from tests.support import DiagnosticTempDir, same_path
 from core import trust_pipeline
 from core.hash_utils import (
     FileChangedDuringScanError,
@@ -48,7 +48,7 @@ class MidReadMutationTests(unittest.TestCase):
 
         def opener(self_path, *args, **kwargs):
             fh = real_open(self_path, *args, **kwargs)
-            if str(self_path) == str(self.sample) and not state["wrapped"]:
+            if same_path(self_path, self.sample) and not state["wrapped"]:
                 state["wrapped"] = True
                 real_read = fh.read
 
@@ -75,7 +75,7 @@ class MidReadMutationTests(unittest.TestCase):
         real_open = Path.open
 
         def counting(self_path, *args, **kwargs):
-            if str(self_path) == str(self.sample):
+            if same_path(self_path, self.sample):
                 opens["n"] += 1
             return real_open(self_path, *args, **kwargs)
 
@@ -197,7 +197,7 @@ class ManifestStrictModeTests(unittest.TestCase):
 
         def opener(self_path, *args, **kwargs):
             fh = real_open(self_path, *args, **kwargs)
-            if str(self_path) == str(self.moving) and not state["wrapped"]:
+            if same_path(self_path, self.moving) and not state["wrapped"]:
                 state["wrapped"] = True
                 real_read = fh.read
 

@@ -4,6 +4,59 @@ All notable changes to this project are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/) and this project
 follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Nothing here changes the product. It changes what the test suite is able to
+claim, which turned out to be less than it looked.
+
+### CI, and what it found immediately
+- `.github/workflows/gate.yml` runs the gate on a GitHub Windows runner,
+  started by hand rather than by a push: a gate is several full suite runs by
+  definition and private-repository Windows minutes bill at twice the
+  wall-clock. It describes the machine before judging anything, and on failure
+  uploads whatever temp directories the suite left behind.
+- Its first run turned **620 green tests here into 13 failures and a skip
+  there**, on identical product code. Ten of the thirteen were one pattern:
+  test hooks comparing a path by its *string*.
+
+### Paths are not their spelling
+- Six sites wrote `str(self_path) == str(target)` to recognise a file. The
+  product normalises deliberately — `ScanController.select` stores
+  `Path(p).resolve()`, the scanner resolves its root before walking — so on a
+  machine whose temp directory is reachable by an 8.3 short name the hooks
+  never matched. Eight tests describing an *incomplete* scan were measuring a
+  complete one; the TOCTOU test that swaps a file mid-read never swapped it.
+- `tests/support.py` gained `same_path()` (identity via `os.path.samefile`:
+  volume and file index, which no spelling can change) and `deny_reads_of()`
+  (a read denial that **raises if it never fired**, so a fixture that quietly
+  stops working cannot keep reporting success). All six sites converted. No
+  product code touched.
+- Found while fixing that, and not by CI, which reported it as a pass:
+  `assertNotEqual(selected_path, str(a))` succeeds on a spelling difference
+  even when the selection really is `a`. The negative form is the one that
+  rots silently.
+- `tools/run_suite_gate.py --odd-temp` hands the suite a second spelling of
+  `TEMP`, reproducing the runner's condition on any machine. Measured both
+  ways: the pre-fix files fail exactly the ten tests CI reported; the fixed
+  ones pass. This class of defect no longer needs a second machine to find.
+
+### Skips are machine-specific, and so was the zero-skip rule
+- The drag-and-drop ANSI test skipped on the runner claiming "no ANSI code
+  page". The runner has one — cp1252 — it just has no `ş` or `ı`. It now picks
+  a name the machine's code page can spell whose bytes are still invalid
+  UTF-8, and fails rather than skips if no candidate fits.
+- The suite holds 68 skip sites. None fire here, which is why the gate reports
+  "0 skipped"; the claim was always "this suite does not skip **on this
+  machine**". Recorded as item 13 in `docs/P1-BACKLOG.md` rather than fixed
+  wholesale.
+
+### Still open
+- Three Authenticode tests fail on Windows Server 2025. Not diagnosed; a fix
+  cannot be verified without another runner run.
+- Backlog item 7 (file symlink containment) is testable on the runner, which
+  can create file symlinks — this desktop cannot, measured again: `WinError
+  1314`, Developer Mode absent from the registry.
+
 ## [2.0.0] — 2026-08-20
 
 A security and correctness revision. Several changes are deliberately
@@ -335,7 +388,7 @@ now requires an executable to report the version its source tree declares.
   no PATH fallback, no `-ExecutionPolicy Bypass`.
 
 ### Tests
-- 37 → 620, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
+- 37 → 627, no skips. Verified on a cp1254 console with `PYTHONUTF8` and
   `PYTHONIOENCODING` unset, and under explicit UTF-8.
 - `tools/verify_fix_coverage.py` reverts each fix in a scratch copy and requires
   the test that claims to cover it to fail, so a test that asserts nothing is

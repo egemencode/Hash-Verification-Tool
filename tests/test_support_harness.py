@@ -16,9 +16,11 @@ from unittest import mock
 
 from tests import support
 from tests.support import (
+    DenialNeverFiredError,
     DiagnosticTempDir,
     InconclusiveCleanupError,
     LeftoverFilesError,
+    deny_reads_of,
 )
 
 
@@ -256,3 +258,70 @@ class DropInCompatibilityTests(unittest.TestCase):
             path = Path(bound)
             self.assertTrue(path.is_dir())
         self.assertFalse(path.exists())
+
+
+class DenyReadsOfTests(unittest.TestCase):
+    """The fixture that makes a file unreadable, and knows whether it did.
+
+    Its predecessor compared ``str(path) == str(target)``, which is only
+    correct while nobody spells the path another way. The product resolves
+    the scan root before opening anything under it, so "another way" is the
+    normal case as soon as the temp directory is reached by a short name, a
+    different case, or an extended-length prefix — and then the denial is a
+    no-op that no assertion notices.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = DiagnosticTempDir()
+        self.target = Path(self._tmp.name) / "gizli.bin"
+        self.target.write_bytes(b"data")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_reading_the_target_is_refused(self) -> None:
+        with deny_reads_of(self.target) as denial:
+            with self.assertRaises(PermissionError):
+                self.target.open("rb")
+        self.assertEqual(denial.denials, 1)
+
+    def test_other_files_are_untouched(self) -> None:
+        other = Path(self._tmp.name) / "acik.bin"
+        other.write_bytes(b"fine")
+        with deny_reads_of(self.target):
+            with other.open("rb") as handle:
+                self.assertEqual(handle.read(), b"fine")
+            with self.assertRaises(PermissionError):
+                self.target.open("rb")
+
+    def test_a_differently_cased_spelling_is_still_the_same_file(self) -> None:
+        """The regression. Windows is case-insensitive; ``str`` is not."""
+        spelled = Path(str(self.target).upper())
+        with deny_reads_of(self.target):
+            with self.assertRaises(PermissionError):
+                spelled.open("rb")
+
+    def test_an_extended_length_spelling_is_still_the_same_file(self) -> None:
+        spelled = Path("\\\\?\\" + str(self.target))
+        with deny_reads_of(self.target):
+            with self.assertRaises(PermissionError):
+                spelled.open("rb")
+
+    def test_a_denial_that_never_fires_is_an_error(self) -> None:
+        """The part that stops a broken fixture from reporting success."""
+        with self.assertRaises(DenialNeverFiredError):
+            with deny_reads_of(self.target):
+                pass
+
+    def test_an_exception_from_the_block_is_not_masked(self) -> None:
+        """A real failure inside is more informative than 'nothing fired'."""
+        with self.assertRaises(ZeroDivisionError):
+            with deny_reads_of(self.target):
+                1 / 0
+
+    def test_open_is_restored_afterwards(self) -> None:
+        with self.assertRaises(DenialNeverFiredError):
+            with deny_reads_of(self.target):
+                pass
+        with self.target.open("rb") as handle:
+            self.assertEqual(handle.read(), b"data")

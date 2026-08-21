@@ -22,7 +22,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.support import DiagnosticTempDir
+from tests.support import DiagnosticTempDir, deny_reads_of
 from core.hash_utils import enumerate_files
 from core.manifest_manager import Manifest, build_manifest_for_folder
 from core.verifier import Verifier
@@ -236,16 +236,11 @@ class PartialBuildTests(_Tree):
         bad = self.data / "bad.bin"
         bad.write_bytes(b"data")
 
-        real_open = Path.open
-
-        def deny(self_path, *a, **kw):
-            if str(self_path) == str(bad):
-                raise PermissionError("denied")
-            return real_open(self_path, *a, **kw)
-
-        from unittest import mock
-
-        with mock.patch.object(Path, "open", deny):
+        # Not a str comparison: the product resolves the scan root before it
+        # opens anything under it, so on a machine whose temp directory has
+        # another spelling the denial would never fire and this test would
+        # assert "incomplete" about a scan that read every file.
+        with deny_reads_of(bad):
             build = build_manifest_for_folder(self.data)
 
         self.assertFalse(build.complete, "a build that skipped a file claimed success")

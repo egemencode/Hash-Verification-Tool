@@ -80,13 +80,28 @@ def failure_excerpt(err: str, limit: int = 14) -> str:
     return "\n      ".join(lines[-limit:])
 
 
-def child_env(utf8: bool) -> dict[str, str]:
+def child_env(utf8: bool, odd_temp: bool = False) -> dict[str, str]:
     env = dict(os.environ)
     env.pop("PYTHONUTF8", None)
     env.pop("PYTHONIOENCODING", None)
     if utf8:
         env["PYTHONUTF8"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
+    if odd_temp:
+        # Hand the suite a temp directory spelled a second way. Windows is
+        # case-insensitive, so this names the same directory — which is the
+        # entire point: any test that compares a path by its *string* rather
+        # than by which file it is now sees two spellings and breaks.
+        #
+        # This is not a hypothetical mode. A GitHub runner's TEMP is an 8.3
+        # short path, the product resolves paths before it opens them, and ten
+        # tests that had been green here for months turned out never to have
+        # set up the scenario they described. Uppercasing reproduces that in
+        # one line, on any machine, without a runner.
+        for name in ("TEMP", "TMP"):
+            value = env.get(name)
+            if value:
+                env[name] = value.upper()
     return env
 
 
@@ -166,11 +181,19 @@ def main() -> int:
         "--utf8", action="store_true",
         help="Run the child under explicit UTF-8 instead of the code page.",
     )
+    parser.add_argument(
+        "--odd-temp", action="store_true",
+        help="Spell TEMP a second way, so a test that compares paths as "
+             "strings rather than by identity breaks here instead of on "
+             "somebody else's machine.",
+    )
     args = parser.parse_args()
 
-    env = child_env(args.utf8)
+    env = child_env(args.utf8, args.odd_temp)
     encoding = child_encoding(env)
     mode = "explicit UTF-8" if args.utf8 else "active code page"
+    if args.odd_temp:
+        mode += f"   temp: {env.get('TEMP', '(unset)')}"
     print(f"mode: {mode}   child stdout encoding: {encoding}")
     if not args.utf8 and encoding.lower().replace("-", "") == "utf8":
         print(

@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.support import DiagnosticTempDir
+from tests.support import DiagnosticTempDir, same_path
 from core import hash_utils
 from core.hash_utils import (
     FileChangedDuringScanError,
@@ -46,7 +46,7 @@ class MultiHashTests(unittest.TestCase):
         opens = {"n": 0}
 
         def counting_open(self_path, *args, **kwargs):  # type: ignore[no-untyped-def]
-            if str(self_path) == str(self.sample):
+            if same_path(self_path, self.sample):
                 opens["n"] += 1
             return real_open(self_path, *args, **kwargs)
 

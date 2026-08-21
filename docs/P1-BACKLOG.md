@@ -730,3 +730,180 @@ yazılır. Çözülmedi ve muhtemelen asıl ipucu bu.
 
 **Yayın açısından:** açıklanmamış aralıklı bir abort ile sürüm çıkarmak bir
 karardır, gözden kaçma değil. README'de de böyle yazılı.
+
+---
+
+## 13. Süit, koştuğu makine hakkında yazılı olmayan varsayımlar taşıyor
+
+CI'ın ilk koşumu (2026-08-21, GitHub `windows-latest`) bunu tek seferde
+gösterdi: bu masaüstünde **620/620 yeşil** olan süit, başka bir Windows
+makinesinde **13 hata + 1 skip** verdi. Ürün kodu aynı; değişen tek şey makine.
+
+Runner'ın kimliği (iş akışının ilk adımı bunu logluyor):
+
+| | bu masaüstü | runner |
+|---|---|---|
+| Windows | 11 Pro 26200 | Server 2025 (26100) |
+| stdout kodlaması | cp1254 | **cp1252** |
+| aktif kod sayfası | 1254 | **65001 (UTF-8)** |
+| çekirdek | çok | **2** |
+| yükseltilmiş | hayır | **evet** |
+| dosya symlink | **hayır** | **evet** |
+
+### A. Okunamaz dosya fixture'ı reddetmiyor (8 test) — **sebep bulundu**
+
+`tests/test_partial_manifest.py` içindeki sekiz test dosyayı okunamaz yapıp
+taramanın **eksik** kalmasını bekliyor. Runner'da dosya yine de okundu:
+`build.complete` True döndü ve hata mesajı bunu birebir söylüyor —
+*"a build that skipped a file claimed success"*.
+
+> **Önce yanlış teşhis kondu.** İlk yazımda "en olası sebep sürecin
+> yükseltilmiş olması" deniyordu. Değil. Reddetme `icacls` ile de yapılmıyor
+> (o yalnız `CliPartialTests`'te); asıl yol `_deny_bad()` içindeki mock ve
+> orada tek bir satır var:
+>
+> ```python
+> if str(self_path) == str(self.bad):
+> ```
+>
+> **Yolu dize olarak karşılaştırıyor.** Ürün ise tarama kökünü
+> `core/manifest_manager.py`'de `resolve()` ediyor, dolayısıyla `Path.open`'a
+> giden yol normalleştirilmiş biçim. Runner'ın `TEMP`'i 8.3 kısa adlı
+> (`C:\Users\RUNNER~1\...`), ürün onu `runneradmin` olarak açıyor, dizeler
+> tutmuyor ve **reddetme hiç ateşlenmiyor**.
+
+Bu, C kümesiyle **aynı kök sebep**: testler yolu dize sanıyor, ürün
+normalleştiriyor.
+
+Yerelde 8.3 adına gerek kalmadan tekrarlandı — dosya sistemi büyük/küçük harf
+duyarsız ama `str()` karşılaştırması duyarlı:
+
+```
+yol aynen yazildiginda            atesleme=1  complete=False  SENARYO KURULDU
+yol BUYUK harfle yazildiginda     atesleme=0  complete=True   SENARYO HIC KURULMADI
+yol uzatilmis onekle yazildiginda atesleme=0  complete=True   SENARYO HIC KURULMADI
+```
+
+**Ürün kusuru değil, fixture kusuru** — ama sonucu ciddi: taramanın eksik
+kaldığını iddia eden sekiz test, o senaryoyu **hiç kurmadan** yeşil olabilir.
+İki şey birden gerekiyor: karşılaştırma normalleştirilmiş yol üzerinden
+yapılmalı, **ve fixture reddetmenin gerçekten ateşlendiğini kendisi
+doğrulamalı**. İkincisi olmadan, fixture'ın sessizce çalışmadığı bir sonraki
+makinede aynı sekiz test yine boş yere geçer.
+
+### B. Authenticode beklentileri Windows sürümüne bağlı (3 test)
+
+`test_hardening_blocker5.py::UnknownErrorClassificationTests` gerçek bir
+Windows sistem ikilisinin imzasını kontrol ediyor. Server 2025'te düştü.
+İmza altyapısı ya da seçilen ikili sürüme özgü.
+
+### C ve D de aynı kök sebepmiş — **13 hatanın 10'u tek bir kalıp**
+
+İlk yazımda C'yi ("test beklentisi kısa adla yazılmış") ve D'yi ("TOCTOU
+yarışı 2 çekirdekte farklı") ayrı sebepler sandım. İkisi de yanlıştı.
+
+Süit `str(self_path) == str(...)` kalıbını **altı yerde** taşıyordu:
+
+| dosya | ne yapıyordu |
+|---|---|
+| `test_partial_manifest.py` | okumayı reddet (küme A, 8 test) |
+| `test_folder_scan_integrity.py` | okumayı reddet (küme A) |
+| `test_scan_controller.py` | seçimin B olduğunu iddia et (küme C) |
+| `test_toctou_race.py` (×3) | dosyayı okuma sırasında değiştir (küme D) |
+| `test_hash_snapshot.py` | açılışları say |
+| `test_write_disabled.py` | yazmayı kilitle |
+
+Hepsi aynı varsayımı yapıyor: *bir yol, yazımıdır*. Ürün ise yolları bilerek
+normalleştiriyor — `ScanController.select` `Path(p).resolve()` saklıyor,
+tarayıcı kökü yürümeden önce `resolve()` ediyor. Yazımın kanonik olmadığı bir
+makinede kanca **hiç ateşlenmiyor**: TOCTOU testinde dosya hiç değişmiyor,
+reddetme testinde dosya okunuyor.
+
+### Sessizce geçen bir test daha çıktı
+
+`test_scan_controller.py`'de olumsuz biçim vardı:
+
+```python
+self.assertNotEqual(self.ctl.selected_path, str(self.a))
+```
+
+Bu, **yazım farkında geçer** — denetleyici gerçekten A'ya geri düşmüş olsa
+bile. Runner'da kanonik yol ile kısa adlı yol karşılaştırıldığı için sessizce
+geçti, dolayısıyla CI onu hiç bildirmedi. Bu kusuru CI bulmadı; CI'ın bulduğu
+kusuru kovalarken çıktı.
+
+### Yapılan
+
+`tests/support.py`'ye iki yardımcı eklendi:
+
+- **`same_path(a, b)`** — `os.path.samefile` ile birim + dosya indeksi
+  karşılaştırır. Büyük/küçük harf, 8.3 kısa ad, `\\?\` öneki ya da hard link
+  bunu değiştiremez. Var olmayan yollar için `realpath` + `normcase` yedeği
+  var. Not: yalnız `resolve()` ile normalleştirmek **yetmezdi** —
+  `Path.resolve()` çağıranın `\\?\` önekini bilerek korur.
+- **`deny_reads_of(target)`** — okumayı reddeden bağlam yöneticisi. İki şey
+  yapıyor: kimlikle eşleştiriyor, **ve hiç ateşlenmeden bloktan çıkılırsa
+  hata fırlatıyor**. Sessizce çalışmayan bir fixture, kırılan bir fixture'dan
+  kötüdür — çünkü onu kullanan testler başarı bildirmeye devam eder.
+
+Altı çağrı yerinin hepsi çevrildi. **Ürün koduna dokunulmadı.**
+
+### Kapıya kalıcı bir mod eklendi: `--odd-temp`
+
+Runner'ı beklemek yerine koşulu yerelde üretiyor — `TEMP`'i ikinci bir yazımla
+(büyük harf) çocuğa veriyor. Aynı dizin, farklı dize.
+
+```
+python tools\run_suite_gate.py --rounds 6 --odd-temp
+```
+
+**Dişi ölçüldü.** Düzeltmeden önceki test dosyaları bu modda koşulunca tam
+olarak CI'ın bildirdiği **10 hatanın aynısı** çıktı; düzeltilmiş hâlleri aynı
+modda 48/48 geçiyor. Yani bu kusur sınıfı artık ikinci bir makine gerektirmiyor.
+
+### E. Sıfır-skip kuralı runner'da çiğneniyor (1 skip)
+
+`test_drop_path_decoding.py::test_ansi_bytes_from_the_drop_library_still_name_the_file`
+skip etti. Skip mesajı *"no ANSI code page"* diyordu ve **yanlıştı**:
+runner'ın ANSI kod sayfası var, `1252`. Olmayan şey `ş` ve `ı` harfleri.
+Yani senaryo orada gayet kurulabilirdi — başka harflerle.
+
+**Düzeltildi.** Test artık adı sabit yazmıyor; makinenin ANSI kod sayfasında
+**kodlanabilen ve baytları geçerli UTF-8 olmayan** bir ad seçiyor
+(`_ansi_only_stem`). İki koşul da şart: kodlanamazsa verilecek ANSI baytı
+yok, baytlar geçerli UTF-8 olursa sınanan tehlike (ctypes callback'i içinde
+patlayan UTF-8 çözümü) hiç doğmuyor. Bu makinede hâlâ Türkçe adı seçiyor;
+cp1252'de `grüße tåg` devreye giriyor — ölçüldü.
+
+Hiçbir aday uymazsa `fail()` ediyor, `skipTest` değil — çünkü o durum
+"mbcs burada zaten UTF-8" demektir ve bu gerçek bir cevaptır ama süitin
+verebileceği bir cevap değildir; o sınama `tools/` altına taşınmalıdır.
+
+### E2. Ama sıfır-skip kuralı zaten makineye özgüymüş
+
+Süitte **68 skip noktası** var (`skipTest` + `@unittest.skipUnless`). Çoğu
+meşru ortam kapısı:
+
+- `@unittest.skipUnless(TK_AVAILABLE, ...)` — Tk'siz bir makinede GUI
+  sınıflarının tamamı düşer,
+- *"cannot create a junction on this system"* — beş yerde,
+- *"cannot make a file unreadable on this system"* ve devamında
+  *"the OS still allowed reading the locked file"*.
+
+Hiçbiri **bu** makinede ateşlenmiyor, dolayısıyla kapı burada "0 skipped"
+diyor. Kapının iddiası aslında "bu süit skip etmez" değil, **"bu süit bu
+makinede skip etmez"** imiş — ve ikisi arasındaki farkı ilk kez CI gösterdi.
+
+Bu madde altında kapatılmadı; 68 noktanın hepsini elden geçirmek ayrı bir tur.
+Yön belli: ortam bir yeteneği sunmuyorsa test ya o makinede kurulabilecek bir
+varyantı seçmeli (yukarıdaki gibi), ya da `tools/` altına taşınmalı.
+
+### Neden bu madde önemli
+
+Kapının iddiası "bu kod çalışıyor" değil, "bu kod **bu makinede** çalışıyor"
+imiş ve bunu bugüne kadar kimse ölçmemişti. 13 hatanın hiçbiri bir hash'i, bir
+hükmü ya da bir imza kontrolünü yanlış üretmiyor — hepsi testlerin ortam
+varsayımı. Ama A kümesi, yeşil görünürken hiçbir şey sınamayan sekiz test
+demek, ve bu suite'in en çok korktuğu şey tam olarak budur.
+
+**Koşum:** https://github.com/egemencode/Hash-Verification-Tool/actions/runs/32469508791

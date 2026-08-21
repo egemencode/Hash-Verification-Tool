@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.support import DiagnosticTempDir
+from tests.support import DiagnosticTempDir, same_path
 from core import atomic_io, history_manager, local_verify
 from utils import settings as settings_mod
 from core.history_manager import HistoryManager, HistoryStoreError, make_entry
@@ -192,7 +192,7 @@ class SettingsCorruptionTests(unittest.TestCase):
         real_open = Path.open
 
         def locked(self_path, *args, **kwargs):
-            if str(self_path) == str(self.path):
+            if same_path(self_path, self.path):
                 raise PermissionError("locked by another process")
             return real_open(self_path, *args, **kwargs)
 

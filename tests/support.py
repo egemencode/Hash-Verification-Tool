@@ -25,6 +25,112 @@ _TOLERATED_RMDIR_WINERRORS = frozenset({145})
 _TOLERATED_RMDIR_ERRNOS = frozenset({errno.ENOTEMPTY, errno.EEXIST})
 
 
+def same_path(a: str | Path | None, b: str | Path | None) -> bool:
+    """Do these two spellings name the same file?
+
+    Assertions of the form ``assertEqual(thing.path, str(expected))`` are only
+    correct while nothing normalises the path in between, and this product
+    normalises deliberately in several places — ``ScanController.select``
+    stores ``Path(p).resolve()``, the scanner resolves its root before walking.
+    A machine whose temp directory is reachable by an 8.3 short name then
+    breaks the positive assertions and, worse, makes the *negative* ones pass
+    for the wrong reason: ``assertNotEqual(selected, str(a))`` succeeds on a
+    spelling difference even when the selection really is ``a``.
+
+    Identity first, spelling second. ``samefile`` compares volume and file
+    index and cannot be fooled by case, a short name, an extended-length
+    prefix or a hard link; it needs both paths to exist, so a resolved-string
+    comparison is the fallback for paths that do not (yet).
+    """
+    if a is None or b is None:
+        return a is b
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(
+            os.path.realpath(b)
+        )
+
+
+class DenialNeverFiredError(AssertionError):
+    """Raised when a read denial was set up and nothing ever hit it."""
+
+
+class deny_reads_of:
+    """Make one file unreadable inside a block, and prove that it happened.
+
+    Two tests wrote this by hand and both wrote it the same wrong way::
+
+        if str(self_path) == str(bad):
+
+    A path is not its spelling. The product resolves the scan root before it
+    opens anything under it, so by the time a path reaches ``Path.open`` it is
+    in normalised form — and a temp directory whose name is spelled another
+    way arrives here looking like a different file. The comparison then never
+    matches, the denial never fires, the file is read normally, and every
+    assertion about an *incomplete* scan is made against a complete one.
+
+    That is not a hypothetical. On a GitHub Windows runner ``TEMP`` is an 8.3
+    short path (``C:\\Users\\RUNNER~1\\...``) which the product opens as
+    ``C:\\Users\\runneradmin\\...``; eight tests in ``test_partial_manifest``
+    plus one in ``test_folder_scan_integrity`` went green on this desktop for
+    months and failed there the first time they ran, having never once set up
+    the scenario they describe.
+
+    So this asks the filesystem which file it is looking at, rather than
+    comparing spellings at all. ``os.path.samefile`` compares volume and file
+    index, which no spelling can change: short name, case, an extended-length
+    prefix, or a hard link under another name all answer the same. Normalising
+    the string instead would have been the obvious repair and still wrong —
+    ``Path.resolve()`` deliberately *keeps* a caller's ``\\\\?\\`` prefix, as
+    ``core.scan_policy.resolved`` documents at length.
+
+    And — the part that matters more — **leaving the block without having
+    denied anything is an error**. A fixture that quietly stops working is
+    worse than one that breaks, because the tests using it keep reporting
+    success.
+    """
+
+    def __init__(self, target: str | Path) -> None:
+        self.target = Path(target)
+        self.denials = 0
+        self._patch = None
+
+    def _is_target(self, candidate) -> bool:
+        try:
+            # stat(), not open() — patching open cannot recurse into this.
+            return os.path.samefile(candidate, self.target)
+        except OSError:  # a path that does not exist is not the target
+            return False
+
+    def __enter__(self) -> "deny_reads_of":
+        from unittest import mock
+
+        real_open = Path.open
+
+        def deny(self_path, *args, **kwargs):
+            if self._is_target(self_path):
+                self.denials += 1
+                raise PermissionError(f"denied: {self_path}")
+            return real_open(self_path, *args, **kwargs)
+
+        self._patch = mock.patch.object(Path, "open", deny)
+        self._patch.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self._patch.stop()
+        # Only when the block itself succeeded: an exception from inside is
+        # the more informative failure and must not be masked by this one.
+        if exc_type is None and self.denials == 0:
+            raise DenialNeverFiredError(
+                f"nothing ever tried to read {self.target} — the scenario was "
+                "not set up, so whatever this block asserted was measured "
+                "against a scan that read every file"
+            )
+        return False
+
+
 class LeftoverFilesError(AssertionError):
     """Raised when a temp dir still holds files after the test finished."""
 

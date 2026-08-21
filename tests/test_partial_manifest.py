@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.support import DiagnosticTempDir
+from tests.support import DiagnosticTempDir, deny_reads_of
 from core import manifest_signing
 from core.manifest_manager import (
     Manifest,
@@ -43,14 +43,14 @@ class _PartialTree(unittest.TestCase):
         self._tmp.cleanup()
 
     def _deny_bad(self):
-        real_open = Path.open
-
-        def deny(self_path, *a, **kw):
-            if str(self_path) == str(self.bad):
-                raise PermissionError("denied")
-            return real_open(self_path, *a, **kw)
-
-        return mock.patch.object(Path, "open", deny)
+        # deny_reads_of asks the filesystem which file it is looking at
+        # instead of comparing path strings, and refuses to leave the block
+        # if nothing was ever denied. The hand-written version this replaced
+        # compared str(path) == str(self.bad) and therefore stopped denying
+        # anything the moment the temp directory was reachable by another
+        # spelling — every test below then described an incomplete scan while
+        # measuring a complete one.
+        return deny_reads_of(self.bad)
 
     def _build_partial(self):
         with self._deny_bad():
