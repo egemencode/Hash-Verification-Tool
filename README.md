@@ -671,8 +671,21 @@ Installation section.
 - HMAC mode for keyed integrity verification
 - Watch mode (`--watch`) using `watchdog`
 - Code signing, so the SmartScreen warning above can go away honestly
-- CI (GitHub Actions) so a build and its checks are not something one machine
-  did once
+- CI that runs on its own. `.github/workflows/gate.yml` exists and runs the
+  gate on a Windows runner, but only when started by hand — a gate is several
+  full suite runs by definition, and on a private repository Windows minutes
+  bill at twice the wall-clock, so a push trigger would spend the month's
+  allowance on every commit whether or not anyone wanted an answer:
+
+  ```powershell
+  gh workflow run gate.yml -f rounds=10
+  ```
+
+  Ten rounds is the interesting number: the two intermittent failures below
+  appear at roughly one round in ten, and the runner is the only machine
+  available that is not this desk. It also reports whether it can create a
+  file symlink, which this desktop cannot — that is what leaves backlog item 7
+  unverified.
 
 ---
 

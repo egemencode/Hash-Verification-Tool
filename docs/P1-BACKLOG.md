@@ -241,6 +241,15 @@ değil majör).
 
 ## 7. Dosya symlink containment'ı uçtan uca doğrulanamadı
 
+> **2026-08-20 ölçümü:** bu makinede hâlâ yapılamıyor —
+> `os.symlink` `WinError 1314` ("Gereken ayrıcalık istemci tarafından
+> sağlanmıyor") veriyor, Developer Mode kayıt değeri hiç yok.
+> **Ama artık ayrıcalıklı bir ortam var:** GitHub Windows runner'ları yönetici
+> olarak koşuyor. `.github/workflows/gate.yml` ilk adımda dosya symlink'i
+> oluşturmayı deniyor ve sonucu logluyor. Olumluysa bu maddenin kanıtı orada
+> üretilebilir — `tests/` içine değil, `tools/` altına bir koşum olarak, çünkü
+> bu makinede skip edilecek bir test suite'in sıfır-skip kuralını çiğner.
+
 `iter_files` artık containment kontrolünü dizin/dosya ayrımından **önce**
 yapıyor, yani kök dışına çıkan bir **dosya** symlink'i de taramaya giremiyor.
 Ama bu makinede `SeCreateSymbolicLinkPrivilege` yok (Developer Mode kapalı),
@@ -668,6 +677,12 @@ olabilir.
 
 ### Yapılacak
 
+0. **İkinci bir makinede koştur.** `.github/workflows/gate.yml` (elle
+   tetiklenir) kapıyı bir GitHub Windows runner'ında koşuyor:
+   `gh workflow run gate.yml -f rounds=10`. Bu, bugüne kadar cevaplanamayan
+   soruyu doğrudan soruyor — bu çöküş üründe mi, yoksa bu masaüstünün bir
+   özelliği mi? Başarısız olursa iş akışı kalan `hvt*` dizinlerini artefakt
+   olarak yüklüyor, yani kanıt runner'la birlikte yok olmuyor.
 1. Dump'ın **baş tarafını** yakala — `-X faulthandler` ile tam stderr saklayan
    bir döngü koş. Kapının yeni `failure_excerpt`'i de artık bunu gösterecek.
 2. Kare hangi testi adlandırıyorsa oradan daralt.

@@ -1,0 +1,138 @@
+# The release gate, on a machine that is not this one.
+#
+# Everything this project claims about itself has so far been measured on a
+# single Windows 11 desktop. That is enough to find a defect and not enough to
+# tell a defect from a property of that desktop — which is the open question in
+# backlog items 8 and 12, where the evidence points outside the product and
+# cannot be attributed without a second observation.
+#
+# Started by hand, never by a push. Private-repository Windows runners bill at
+# twice the wall-clock, and a gate is several full suite runs by definition, so
+# a push trigger would spend the account's monthly minutes on every commit
+# whether or not anyone wanted an answer. The owner starts it from the Actions
+# tab, or:
+#
+#     gh workflow run gate.yml -f rounds=10
+#
+# Rounds is the knob that matters. Two is enough to notice something broken;
+# the intermittent failures this exists to observe (backlog items 8 and 12)
+# show up at roughly one round in ten, so asking whether they reproduce off
+# this desktop means asking for ten or more.
+name: gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "Gate rounds per mode (2 is a smoke check; 10+ to hunt something intermittent)"
+        default: "3"
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # tools/run_suite_gate.py runs the suite through .venv\Scripts\python.exe
+      # by design — the gate is meant to exercise the interpreter the developer
+      # actually uses, not whichever one is on PATH. So CI builds that venv,
+      # rather than the harness learning about CI.
+      - name: Build the venv the harness expects
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install --upgrade pip
+          .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+      # Printed before anything is judged, because the interesting failures
+      # here are environmental and this log is the only record of what the
+      # environment was. The symlink probe is not idle curiosity: backlog
+      # item 7 is unverified precisely because the developer machine cannot
+      # create a file symlink, and a runner may be able to.
+      - name: Describe this machine
+        shell: python
+        run: |
+          import ctypes
+          import locale
+          import os
+          import platform
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+          from pathlib import Path
+
+          print("python           :", sys.version.replace("\n", " "))
+          print("platform         :", platform.platform())
+          print("stdout encoding  :", sys.stdout.encoding)
+          print("preferred enc    :", locale.getpreferredencoding(False))
+          print("PYTHONUTF8       :", os.environ.get("PYTHONUTF8", "(unset)"))
+          print("PYTHONIOENCODING :", os.environ.get("PYTHONIOENCODING", "(unset)"))
+          print("processors       :", os.cpu_count())
+          try:
+              print("elevated         :", bool(ctypes.windll.shell32.IsUserAnAdmin()))
+          except Exception as exc:
+              print("elevated         : unknown —", exc)
+          try:
+              print("code page        :", subprocess.run(
+                  ["cmd", "/c", "chcp"], capture_output=True, text=True
+              ).stdout.strip())
+          except Exception as exc:
+              print("code page        : unknown —", exc)
+
+          probe = Path(tempfile.mkdtemp(prefix="ci-symprobe-"))
+          try:
+              target = probe / "target.txt"
+              target.write_text("x", encoding="utf-8")
+              try:
+                  os.symlink(target, probe / "link.txt")
+                  print("file symlinks    : yes — backlog item 7 is testable here")
+              except OSError as exc:
+                  print("file symlinks    : no —", exc)
+          finally:
+              shutil.rmtree(probe)
+
+      # Run once on its own first. A crash inside the gate arrives as "a round
+      # failed"; a crash here arrives with its traceback intact, and knowing
+      # which of the two happened is worth one extra run.
+      - name: Suite, once
+        run: .venv\Scripts\python.exe -m unittest discover -s tests -t . -v
+
+      - name: Gate — whatever code page this machine has
+        env:
+          ROUNDS: ${{ inputs.rounds }}
+        run: .venv\Scripts\python.exe tools\run_suite_gate.py --rounds $env:ROUNDS
+
+      - name: Gate — explicit UTF-8
+        env:
+          ROUNDS: ${{ inputs.rounds }}
+        run: .venv\Scripts\python.exe tools\run_suite_gate.py --rounds $env:ROUNDS --utf8
+
+      # Only reached when something above failed. A temp directory the suite
+      # left behind is the physical evidence for items 8 and 12, and on a
+      # runner it would otherwise be destroyed along with the machine.
+      - name: Keep what a failed round left behind
+        if: failure()
+        run: |
+          New-Item -ItemType Directory -Force leftovers | Out-Null
+          $dirs = Get-ChildItem $env:TEMP -Directory -Filter "hvt*" -ErrorAction SilentlyContinue
+          if (-not $dirs) { Write-Output "no hvt* directories were left behind"; exit 0 }
+          foreach ($d in $dirs) {
+            Write-Output "leftover: $($d.FullName)"
+            Get-ChildItem $d.FullName -Recurse -Force -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Output "    $($_.FullName)  $($_.Length)" }
+            Copy-Item $d.FullName -Destination leftovers -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload the leftovers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leftover-temp-dirs
+          path: leftovers
+          if-no-files-found: ignore
