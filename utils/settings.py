@@ -99,6 +99,15 @@ def _base_dir() -> Path:
     return Path.home() / ".hashtool"
 
 
+def base_dir() -> Path:
+    """Public accessor for the per-user data root.
+
+    Logging uses this so its files land beside the settings/data instead of
+    next to a possibly read-only or temporary executable directory.
+    """
+    return _base_dir()
+
+
 def _settings_path() -> Path:
     return _base_dir() / SETTINGS_FILENAME
 

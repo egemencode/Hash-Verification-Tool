@@ -214,6 +214,10 @@ class DiagnosticTempDir:
         """
         snapshot = self.listing()
 
+        # Release any log file opened under a redirected per-user dir before
+        # deleting the tree — Windows keeps it locked while the handler is open.
+        _release_hash_tool_log()
+
         # Step 1 — delete every file. A failure here is a real defect.
         _unlink_all_files(self.path)
 
@@ -303,6 +307,18 @@ class DiagnosticTempDir:
 
     def __exit__(self, *_exc) -> None:
         self.cleanup()
+
+
+def _release_hash_tool_log() -> None:
+    """Close the app's log handlers so a redirected temp dir can be removed.
+
+    Best-effort: logging must never turn a test's cleanup into a hard failure.
+    """
+    try:
+        from utils.logger import _reset
+        _reset()
+    except Exception:
+        pass
 
 
 # Temp roots this process created that Windows would not let us remove yet.
