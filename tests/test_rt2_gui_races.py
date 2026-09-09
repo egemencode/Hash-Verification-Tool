@@ -99,7 +99,7 @@ class StaleTerminalMessageTests(_GuiCase):
                 )
 
     def test_b_still_completes_after_a_stale_message(self) -> None:
-        from core.scan_controller import ScanState
+        from core.scan_controller import ControllerState
 
         session_a = self._start(self.a)
         session_b = self._start(self.b)
@@ -113,7 +113,7 @@ class StaleTerminalMessageTests(_GuiCase):
             "the poll loop stopped at the stale message",
         )
         self.assertEqual(
-            self.view._controller.state, ScanState.SUCCESS,          # noqa: SLF001
+            self.view._controller.state, ControllerState.SUCCESS,          # noqa: SLF001
         )
         self.assertIsNotNone(self.view._controller.last_result)      # noqa: SLF001
 

@@ -26,7 +26,7 @@ from core.baseline import (
 )
 from core.hash_utils import HashError, compute_file_hashes
 from core.local_verify import LocalStoreError, LocalVerifyStatus, LocalVerifyStore
-from core.scan_controller import ScanCancelled, ScanController, ScanState
+from core.scan_controller import ScanCancelled, ScanController, ControllerState
 from core.risk_engine import RiskLevel
 from gui import theme
 from gui.i18n import get_language, t
@@ -686,7 +686,7 @@ class TrustCheckView(ttk.Frame):
         if (
             not terminal_handled
             and self._busy
-            and self._controller.state is ScanState.CANCELLED
+            and self._controller.state is ControllerState.CANCELLED
         ):
             self._show_cancelled_end_state()
             terminal_handled = True

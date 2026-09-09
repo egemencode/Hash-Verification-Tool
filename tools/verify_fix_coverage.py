@@ -179,7 +179,7 @@ REVERTS = [
     # The controller discards a result that lands after the cancel, so no
     # terminal branch fires and the screen would claim to still be scanning.
     ("cancelled scan always reaches an end state", "gui/views/trust_check_view.py",
-     "            and self._controller.state is ScanState.CANCELLED\n",
+     "            and self._controller.state is ControllerState.CANCELLED\n",
      "            and False\n",
      "tests.test_gui_cancel_button.CancelButtonTests"
      ".test_a_scan_that_finishes_just_after_cancel_still_ends_the_screen"),

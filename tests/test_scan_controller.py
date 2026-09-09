@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 
 from tests.support import DiagnosticTempDir, same_path
-from core.scan_controller import ScanController, ScanState
+from core.scan_controller import ScanController, ControllerState
 
 
 class _Recorder:
@@ -57,30 +57,30 @@ class _Tree(unittest.TestCase):
 
 class StateMachineTests(_Tree):
     def test_starts_idle(self) -> None:
-        self.assertEqual(self.ctl.state, ScanState.IDLE)
+        self.assertEqual(self.ctl.state, ControllerState.IDLE)
         self.assertIsNone(self.ctl.last_result)
 
     def test_select_moves_to_selected(self) -> None:
         self.ctl.select(str(self.a))
-        self.assertEqual(self.ctl.state, ScanState.SELECTED)
+        self.assertEqual(self.ctl.state, ControllerState.SELECTED)
 
     def test_scan_requires_a_selection(self) -> None:
         self.assertFalse(self.ctl.begin_scan())
-        self.assertEqual(self.ctl.state, ScanState.IDLE)
+        self.assertEqual(self.ctl.state, ControllerState.IDLE)
 
     def test_successful_scan_reaches_success(self) -> None:
         self.ctl.select(str(self.a))
         session = self.ctl.begin_scan()
-        self.assertEqual(self.ctl.state, ScanState.SCANNING)
+        self.assertEqual(self.ctl.state, ControllerState.SCANNING)
         self.ctl.deliver_result(session, {"ok": True})
-        self.assertEqual(self.ctl.state, ScanState.SUCCESS)
+        self.assertEqual(self.ctl.state, ControllerState.SUCCESS)
         self.assertIsNotNone(self.ctl.last_result)
 
     def test_error_reaches_error_state(self) -> None:
         self.ctl.select(str(self.a))
         session = self.ctl.begin_scan()
         self.ctl.deliver_error(session, RuntimeError("boom"))
-        self.assertEqual(self.ctl.state, ScanState.ERROR)
+        self.assertEqual(self.ctl.state, ControllerState.ERROR)
         self.assertIsNone(self.ctl.last_result)
 
     def test_cancel_reaches_cancelled(self) -> None:
@@ -89,7 +89,7 @@ class StateMachineTests(_Tree):
         self.ctl.cancel()
         self.assertTrue(session.cancelled)
         self.ctl.deliver_result(session, {"ok": True})
-        self.assertEqual(self.ctl.state, ScanState.CANCELLED)
+        self.assertEqual(self.ctl.state, ControllerState.CANCELLED)
         self.assertIsNone(self.ctl.last_result)
 
     def test_busy_blocks_a_second_scan(self) -> None:
@@ -129,7 +129,7 @@ class ResultIdentityTests(_Tree):
 
         self.assertEqual(self.rec.rendered, [], "a stale result was rendered")
         self.assertIsNone(self.ctl.last_result)
-        self.assertEqual(self.ctl.state, ScanState.SELECTED)
+        self.assertEqual(self.ctl.state, ControllerState.SELECTED)
         # same_path, not assertEqual: select() stores Path(p).resolve(), so
         # comparing against the raw spelling only holds while the raw spelling
         # happens to be canonical.
@@ -154,7 +154,7 @@ class ResultIdentityTests(_Tree):
             same_path(self.ctl.selected_path, self.a),
             "the previously selected file would have been scanned instead",
         )
-        self.assertEqual(self.ctl.state, ScanState.ERROR)
+        self.assertEqual(self.ctl.state, ControllerState.ERROR)
 
     def test_selecting_a_new_file_clears_the_previous_result(self) -> None:
         self.ctl.select(str(self.a))

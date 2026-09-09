@@ -28,7 +28,7 @@ from typing import Any, Callable, Optional
 from core.hash_utils import FileSnapshot, HashError, snapshot_file
 
 
-class ScanState(str, Enum):
+class ControllerState(str, Enum):
     IDLE = "idle"
     SELECTED = "selected"
     SCANNING = "scanning"
@@ -83,7 +83,7 @@ class ScanController:
         on_cleared: Optional[Callable[[], None]] = None,
     ) -> None:
         self._lock = threading.RLock()
-        self._state = ScanState.IDLE
+        self._state = ControllerState.IDLE
         self._selected: Optional[str] = None
         self._active: Optional[ScanSession] = None
         self._result: Optional[Any] = None
@@ -97,7 +97,7 @@ class ScanController:
     # Observable state
     # ------------------------------------------------------------------
     @property
-    def state(self) -> ScanState:
+    def state(self) -> ControllerState:
         with self._lock:
             return self._state
 
@@ -125,7 +125,7 @@ class ScanController:
     @property
     def is_busy(self) -> bool:
         with self._lock:
-            return self._state is ScanState.SCANNING
+            return self._state is ControllerState.SCANNING
 
     @property
     def is_shut_down(self) -> bool:
@@ -135,7 +135,7 @@ class ScanController:
     @property
     def can_export(self) -> bool:
         with self._lock:
-            return self._result is not None and self._state is ScanState.SUCCESS
+            return self._result is not None and self._state is ControllerState.SUCCESS
 
     @property
     def can_save_baseline(self) -> bool:
@@ -156,7 +156,7 @@ class ScanController:
                 self._active = None
             self._selected = canonical
             self._clear_result_locked()
-            self._state = ScanState.SELECTED
+            self._state = ControllerState.SELECTED
         self._notify_cleared()
 
     def begin_scan(self) -> Optional[ScanSession]:
@@ -164,7 +164,7 @@ class ScanController:
         with self._lock:
             if self._shut_down or self._selected is None:
                 return None
-            if self._state is ScanState.SCANNING:
+            if self._state is ControllerState.SCANNING:
                 return None  # busy: ignore repeat presses / drops
             try:
                 snapshot = snapshot_file(self._selected)
@@ -177,7 +177,7 @@ class ScanController:
             )
             self._active = session
             self._clear_result_locked()
-            self._state = ScanState.SCANNING
+            self._state = ControllerState.SCANNING
             return session
 
     def rescan(self, path: str) -> Optional[ScanSession]:
@@ -200,7 +200,7 @@ class ScanController:
                     self._active = None
                 self._selected = None
                 self._clear_result_locked()
-                self._state = ScanState.ERROR
+                self._state = ControllerState.ERROR
                 return None
         self.select(path)
         return self.begin_scan()
@@ -225,7 +225,7 @@ class ScanController:
                 self._active.cancel()
                 self._active = None
                 self._clear_result_locked()
-                self._state = ScanState.CANCELLED
+                self._state = ControllerState.CANCELLED
 
     # ------------------------------------------------------------------
     # Worker callbacks
@@ -242,7 +242,7 @@ class ScanController:
                 return False
             self._active = None
             self._clear_result_locked()
-            self._state = ScanState.CANCELLED
+            self._state = ControllerState.CANCELLED
             return True
 
     def deliver_result(self, session: ScanSession, result: Any) -> bool:
@@ -251,12 +251,12 @@ class ScanController:
             if not self._is_current_locked(session):
                 if session.cancelled and self._active is session:
                     self._active = None
-                    self._state = ScanState.CANCELLED
+                    self._state = ControllerState.CANCELLED
                 return False
             self._active = None
             self._result = result
             self._result_session = session
-            self._state = ScanState.SUCCESS
+            self._state = ControllerState.SUCCESS
         if self._on_result is not None:
             self._on_result(session, result)
         return True
@@ -266,11 +266,11 @@ class ScanController:
             if not self._is_current_locked(session):
                 if session.cancelled and self._active is session:
                     self._active = None
-                    self._state = ScanState.CANCELLED
+                    self._state = ControllerState.CANCELLED
                 return False
             self._active = None
             self._clear_result_locked()
-            self._state = ScanState.ERROR
+            self._state = ControllerState.ERROR
         if self._on_error is not None:
             self._on_error(session, exc)
         return True

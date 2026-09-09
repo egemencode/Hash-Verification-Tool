@@ -122,7 +122,7 @@ class CancelButtonTests(unittest.TestCase):
 
     # ------------------------------------------------------------------
     def test_pressing_cancel_stops_a_running_scan(self) -> None:
-        from core.scan_controller import ScanState
+        from core.scan_controller import ControllerState
 
         entered = self._park_in_a_stage()
         self.view._set_selected_path(str(self.target))   # noqa: SLF001
@@ -140,7 +140,7 @@ class CancelButtonTests(unittest.TestCase):
         self._drain_until_idle()
 
         self.assertIs(
-            self.view._controller.state, ScanState.CANCELLED,  # noqa: SLF001
+            self.view._controller.state, ControllerState.CANCELLED,  # noqa: SLF001
             "the scan did not end as cancelled",
         )
         self.assertFalse(self.view.is_busy)
@@ -171,7 +171,7 @@ class CancelButtonTests(unittest.TestCase):
         # to end somewhere. Before the Cancel button existed nothing could set
         # the token mid-scan, so this ordering was unreachable; adding the
         # button is what makes it possible.
-        from core.scan_controller import ScanState
+        from core.scan_controller import ControllerState
 
         self.view._set_selected_path(str(self.target))    # noqa: SLF001
         session = self.view._controller.begin_scan()      # noqa: SLF001
@@ -185,7 +185,7 @@ class CancelButtonTests(unittest.TestCase):
         self._pump(2)
 
         self.assertIs(
-            self.view._controller.state, ScanState.CANCELLED,   # noqa: SLF001
+            self.view._controller.state, ControllerState.CANCELLED,   # noqa: SLF001
         )
         self.assertIsNone(
             self.view._controller.last_result,                  # noqa: SLF001
