@@ -214,16 +214,51 @@ class TrustCheckView(ttk.Frame):
     # ==================================================================
     def _build(self) -> None:
         self.columnconfigure(0, weight=1)
-        # Row 4 (details notebook) grows; everything above stays compact
-        # so the "first show simple summary, then details" UX hierarchy
-        # is preserved.
-        self.rowconfigure(4, weight=1)
+        # The advanced area (row 3) grows; the simple screen above it stays
+        # compact. For a first-time user the whole screen is: drop a file,
+        # read the verdict, done. Everything technical — the SHA-256 string,
+        # the save/export buttons, the per-check detail tabs — lives inside a
+        # collapsed "İleri" area they never have to open.
+        self.rowconfigure(3, weight=1)
 
         self._build_drop_zone(row=0)
         self._build_summary_panel(row=1)
-        self._build_fingerprint_panel(row=2)
-        self._build_action_row(row=3)
-        self._build_details_notebook(row=4)
+        self._build_simple_actions(row=2)
+        self._build_advanced_area(row=3)
+
+    # --- Simple actions + advanced toggle -----------------------------
+    def _build_simple_actions(self, row: int) -> None:
+        frame = ttk.Frame(self)
+        frame.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+        frame.columnconfigure(0, weight=1)
+
+        self.rescan_btn = ttk.Button(
+            frame, text=t("trust.btn.rescan"), command=self._on_scan
+        )
+        self.rescan_btn.grid(row=0, column=0, sticky="w")
+        self.rescan_btn.state(["disabled"])
+
+        # One control reveals everything technical at once.
+        self._details_toggle_var = tk.StringVar(value=t("trust.details.show"))
+        self._details_toggle_btn = ttk.Button(
+            frame,
+            textvariable=self._details_toggle_var,
+            command=self._toggle_details,
+        )
+        self._details_toggle_btn.grid(row=0, column=1, sticky="e")
+
+    def _build_advanced_area(self, row: int) -> None:
+        """Everything technical, collapsed by default under the İleri toggle."""
+        container = ttk.Frame(self)
+        # NOT gridded yet — collapsed. _toggle_details() reveals it.
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(2, weight=1)
+        self._advanced_container = container
+        self._details_visible = False
+
+        self._build_fingerprint_panel(container, row=0)
+        self._build_export_row(container, row=1)
+        self._build_details_notebook(container, row=2)
 
     # --- Drop zone ----------------------------------------------------
     def _build_drop_zone(self, row: int) -> None:
@@ -361,13 +396,13 @@ class TrustCheckView(ttk.Frame):
         ).grid(row=2, column=1, sticky="w")
 
     # --- Fingerprint (SHA-256) ---------------------------------------
-    def _build_fingerprint_panel(self, row: int) -> None:
+    def _build_fingerprint_panel(self, parent, row: int) -> None:
         """
-        Beginner UX rule: SHA-256 is the *main* visible identifier. It
-        gets its own card right under the summary; MD5 and SHA-1 stay
-        hidden inside the collapsible "Teknik Detaylar" notebook below.
+        SHA-256 is the file's unique identifier, but it means nothing to a
+        first-time user, so it lives inside the İleri area rather than on the
+        main screen. MD5 and SHA-1 stay one level deeper, in the detail tabs.
         """
-        frame = ttk.LabelFrame(self, text=t("trust.section.fingerprint"), padding=14)
+        frame = ttk.LabelFrame(parent, text=t("trust.section.fingerprint"), padding=14)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         frame.columnconfigure(0, weight=1)
 
@@ -395,15 +430,12 @@ class TrustCheckView(ttk.Frame):
             wraplength=820,
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
-    # --- Action row ---------------------------------------------------
-    def _build_action_row(self, row: int) -> None:
-        frame = ttk.Frame(self)
+    # --- Export / remember row (inside the İleri area) ----------------
+    def _build_export_row(self, parent, row: int) -> None:
+        frame = ttk.Frame(parent)
         frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
         frame.columnconfigure(0, weight=1)
 
-        self.rescan_btn = ttk.Button(
-            frame, text=t("trust.btn.rescan"), command=self._on_scan
-        )
         self.remember_btn = ttk.Button(
             frame, text=t("trust.btn.remember"), command=self._on_remember
         )
@@ -417,45 +449,17 @@ class TrustCheckView(ttk.Frame):
         )
 
         for i, btn in enumerate(
-            (self.rescan_btn, self.remember_btn, self.export_json_btn, self.export_html_btn)
+            (self.remember_btn, self.export_json_btn, self.export_html_btn)
         ):
             btn.grid(row=0, column=1 + i, padx=(8 if i else 0, 0))
             btn.state(["disabled"])
 
-    # --- Details notebook --------------------------------------------
-    def _build_details_notebook(self, row: int) -> None:
-        """
-        Collapsed by default to keep the first screen distraction-free
-        for non-technical users. The toggle button is the only thing
-        visible until the user explicitly asks for the details.
-        """
-        wrapper = ttk.Frame(self)
-        wrapper.grid(row=row, column=0, sticky="nsew")
-        wrapper.columnconfigure(0, weight=1)
-        wrapper.rowconfigure(1, weight=1)
-
-        header = ttk.Frame(wrapper)
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        header.columnconfigure(0, weight=1)
-        ttk.Label(
-            header,
-            text=t("trust.details.title"),
-            font=theme.FONT_UI_BOLD,
-        ).grid(row=0, column=0, sticky="w")
-        self._details_toggle_var = tk.StringVar(value=t("trust.details.show"))
-        self._details_toggle_btn = ttk.Button(
-            header,
-            textvariable=self._details_toggle_var,
-            width=12,
-            command=self._toggle_details,
-        )
-        self._details_toggle_btn.grid(row=0, column=1, sticky="e")
-
-        nb = ttk.Notebook(wrapper)
-        # NOT gridded yet — collapsed state. _toggle_details() lays it
-        # out when the user clicks the button.
+    # --- Details notebook (inside the İleri area) --------------------
+    def _build_details_notebook(self, parent, row: int) -> None:
+        """Per-check detail tabs (file / hashes / VirusTotal / signature / local)."""
+        nb = ttk.Notebook(parent)
+        nb.grid(row=row, column=0, sticky="nsew", pady=(6, 0))
         self._details_notebook = nb
-        self._details_visible = False
 
         self.file_tab = self._make_kv_tab(nb, t("trust.tab.file"))
         self.hash_tab_frame, self.hash_rows = self._make_hash_tab(nb)
@@ -471,11 +475,11 @@ class TrustCheckView(ttk.Frame):
 
     def _toggle_details(self) -> None:
         if self._details_visible:
-            self._details_notebook.grid_forget()
+            self._advanced_container.grid_forget()
             self._details_visible = False
             self._details_toggle_var.set(t("trust.details.show"))
         else:
-            self._details_notebook.grid(row=1, column=0, sticky="nsew")
+            self._advanced_container.grid(row=3, column=0, sticky="nsew")
             self._details_visible = True
             self._details_toggle_var.set(t("trust.details.hide"))
 

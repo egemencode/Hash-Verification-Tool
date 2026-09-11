@@ -222,6 +222,14 @@ class HashToolApp(tk.Tk):
         self.status_var = tk.StringVar(value=t("status.ready"))
         self._worker: Optional[_Worker] = None
 
+        # Secondary tool windows (History / Settings / Advanced), created
+        # hidden and shown from the menu. The main window holds only the
+        # single-page Trust Check screen, so a first-time user sees one screen.
+        self._tool_windows: list[tk.Toplevel] = []
+        self._history_win: Optional[tk.Toplevel] = None
+        self._settings_win: Optional[tk.Toplevel] = None
+        self._advanced_win: Optional[tk.Toplevel] = None
+
         # Trust-check related widgets that the menu / history rescan
         # callbacks need to talk to.
         self.trust_view: Optional[TrustCheckView] = None
@@ -255,10 +263,10 @@ class HashToolApp(tk.Tk):
         theme.apply(self)
 
     def _render_ui(self) -> None:
-        """Build window title, menu, notebook and status bar from scratch."""
+        """Build window title, menu, main screen and status bar from scratch."""
         self.title(f"{t('app.title')}  —  v{__version__}")
         self._build_menu()
-        self._build_notebook()
+        self._build_main()
         self._build_statusbar()
         self.status_var.set(t("status.ready"))
 
@@ -281,22 +289,44 @@ class HashToolApp(tk.Tk):
         settingsmenu.add_cascade(label=t("menu.language"), menu=langmenu)
         menubar.add_cascade(label=t("menu.settings"), menu=settingsmenu)
 
+        toolsmenu = tk.Menu(menubar, tearoff=False)
+        toolsmenu.add_command(
+            label=t("tab.history").strip(),
+            command=lambda: self._open_tool_window(self._history_win),
+        )
+        toolsmenu.add_command(
+            label=t("tab.settings_tab").strip(),
+            command=lambda: self._open_tool_window(self._settings_win),
+        )
+        toolsmenu.add_separator()
+        toolsmenu.add_command(
+            label=t("tab.advanced").strip(),
+            command=lambda: self._open_tool_window(self._advanced_win),
+        )
+        menubar.add_cascade(label=t("menu.tools"), menu=toolsmenu)
+
         helpmenu = tk.Menu(menubar, tearoff=False)
         helpmenu.add_command(label=t("menu.about"), command=self._show_about)
         menubar.add_cascade(label=t("menu.help"), menu=helpmenu)
 
-        for menu in (menubar, filemenu, settingsmenu, langmenu, helpmenu):
+        for menu in (menubar, filemenu, settingsmenu, langmenu, toolsmenu, helpmenu):
             theme.style_menu(menu)
         self.config(menu=menubar)
         self._menubar = menubar
 
-    def _build_notebook(self) -> None:
-        nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True, padx=10, pady=(10, 0))
+    def _build_main(self) -> None:
+        """Single-page layout: the Trust Check screen fills the window.
 
-        # --- New friendly views --------------------------------------
+        History, Settings and the power-user tools each live in their own
+        window, created hidden and shown from the Tools menu. They are built
+        up front (not lazily) so the views inside them exist for callbacks and
+        for tests that hold a reference like ``app.hash_tab``.
+        """
+        self.notebook = None
+        self._tool_windows = []
+
         self.trust_view = TrustCheckView(
-            nb,
+            self,
             get_vt_client=self._make_vt_client,
             local_store=self._local_store,
             history_manager=self._history_manager,
@@ -304,36 +334,59 @@ class HashToolApp(tk.Tk):
             on_scan_recorded=self._refresh_history,
             get_online_enabled=lambda: self._app_settings.virustotal_autoquery,
         )
+        self.trust_view.pack(fill="both", expand=True, padx=10, pady=(10, 0))
+
+        # --- History (hidden window) ---------------------------------
+        self._history_win = self._make_tool_window(t("tab.history").strip())
         self.history_view = HistoryView(
-            nb,
+            self._history_win,
             self._history_manager,
             on_rescan_request=self._rescan_from_history,
         )
+        self.history_view.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # --- Settings (hidden window) --------------------------------
+        self._settings_win = self._make_tool_window(t("tab.settings_tab").strip())
         self.settings_view = SettingsView(
-            nb,
+            self._settings_win,
             self._app_settings,
             on_settings_changed=self._on_settings_changed,
         )
+        self.settings_view.pack(fill="both", expand=True, padx=8, pady=8)
 
-        nb.add(self.trust_view,    text=t("tab.trust"))
-        nb.add(self.history_view,  text=t("tab.history"))
-        nb.add(self.settings_view, text=t("tab.settings_tab"))
-
-        # --- Legacy power-user views, grouped under one "Advanced" tab
-        advanced_holder = ttk.Frame(nb, padding=0)
-        advanced_holder.pack(fill="both", expand=True)
-        advanced_nb = ttk.Notebook(advanced_holder)
-        advanced_nb.pack(fill="both", expand=True, padx=0, pady=0)
-
+        # --- Advanced power-user tools (hidden window) ---------------
+        self._advanced_win = self._make_tool_window(t("tab.advanced").strip())
+        advanced_nb = ttk.Notebook(self._advanced_win)
+        advanced_nb.pack(fill="both", expand=True, padx=8, pady=8)
         self.hash_tab = HashTab(advanced_nb, self)
         self.verify_tab = VerifyTab(advanced_nb, self)
         self.report_tab = ReportTab(advanced_nb, self)
         advanced_nb.add(self.hash_tab,   text=t("tab.hash"))
         advanced_nb.add(self.verify_tab, text=t("tab.verify"))
         advanced_nb.add(self.report_tab, text=t("tab.report"))
-        nb.add(advanced_holder, text=t("tab.advanced"))
 
-        self.notebook = nb
+    def _make_tool_window(self, title: str) -> tk.Toplevel:
+        """A secondary window that hides (not destroys) on close, so it and
+        the view inside it survive to be reopened."""
+        win = tk.Toplevel(self)
+        win.title(f"{title} — {t('app.title')}")
+        win.geometry("900x640")
+        win.withdraw()
+        win.transient(self)
+        win.protocol("WM_DELETE_WINDOW", win.withdraw)
+        try:
+            theme.apply(win)
+        except Exception:
+            pass
+        self._tool_windows.append(win)
+        return win
+
+    def _open_tool_window(self, win: Optional[tk.Toplevel]) -> None:
+        if win is None:
+            return
+        win.deiconify()
+        win.lift()
+        win.focus_set()
 
     # ------------------------------------------------------------------
     # Trust-check plumbing
@@ -352,11 +405,17 @@ class HashToolApp(tk.Tk):
     def _rescan_from_history(self, path: str) -> None:
         if self.trust_view is None:
             return
-        # Jump back to the Trust tab and prefill the file before triggering
-        # a fresh scan. Keeps the workflow obvious for double-clicks.
+        # History lives in its own window; get it out of the way and bring the
+        # main screen forward so the scan the user asked for is what they see.
+        if self._history_win is not None:
+            try:
+                self._history_win.withdraw()
+            except tk.TclError:
+                pass
         try:
-            self.notebook.select(self.trust_view)  # type: ignore[union-attr]
-        except (tk.TclError, AttributeError):
+            self.lift()
+            self.focus_set()
+        except tk.TclError:
             pass
         # One API that either starts a scan of *this* path or reports why it
         # could not. Previously this set the path and then called _on_scan()
@@ -510,36 +569,34 @@ class HashToolApp(tk.Tk):
                 t("settings.language.save_failed_body", error=exc),
             )
 
-        # Capture which tab was active so the user doesn't lose context.
-        active = 0
-        if self.notebook is not None:
-            try:
-                active = self.notebook.index(self.notebook.select())
-            except tk.TclError:
-                active = 0
-
         if self._menubar is not None:
             self._menubar.destroy()
             self._menubar = None
-        if self.notebook is not None:
-            self.notebook.destroy()
-            self.notebook = None
-            # New-style views are children of the notebook — when the
-            # notebook is destroyed Tk frees them too. Drop our refs so
-            # we don't accidentally talk to dead widgets.
+        # Tear down the main screen and every tool window; _render_ui rebuilds
+        # them in the new locale. Dropping the refs keeps a late callback from
+        # touching a freed widget.
+        for win in list(self._tool_windows):
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+        self._tool_windows = []
+        self._history_win = None
+        self._settings_win = None
+        self._advanced_win = None
+        if self.trust_view is not None:
+            try:
+                self.trust_view.destroy()
+            except tk.TclError:
+                pass
             self.trust_view = None
-            self.history_view = None
+        self.history_view = None
+        self.settings_view = None
         if self._statusbar is not None:
             self._statusbar.destroy()
             self._statusbar = None
 
         self._render_ui()
-
-        if self.notebook is not None:
-            try:
-                self.notebook.select(active)
-            except tk.TclError:
-                pass
 
     # ------------------------------------------------------------------
     # Background-work plumbing
