@@ -10,13 +10,16 @@
 #               Without it the "Dosya Seç…" button still works.
 #   colorama  : ANSI colour output for the legacy CLI (advanced tab /
 #               main.py). The GUI does not use it.
+#   sv-ttk    : Sun Valley theme — a modern Windows 11 look for the GUI.
+#               Without it the GUI falls back to its built-in clam styling.
 #
-# If you are building an EXE with PyInstaller install all three so the
+# If you are building an EXE with PyInstaller install all four so the
 # bundle ships the best UX out of the box.
 # ----------------------------------------------------------------------
 requests>=2.31.0
 windnd>=1.0.7
 colorama>=0.4.6
+sv-ttk>=2.6,<3
 
 # cryptography: REQUIRED only for the optional Ed25519 signed-manifest
 # feature (core.manifest_signing) — generating a key, signing a manifest,

@@ -258,9 +258,22 @@ class HashToolApp(tk.Tk):
     # Chrome
     # ------------------------------------------------------------------
     def _apply_style(self) -> None:
-        # The chrome lives with the tokens it is built from, so a colour and
-        # the surface it has to be legible against cannot be edited apart.
+        # Colour tokens (text, risk and badge colours) still come from our own
+        # theme; the widget chrome — buttons, entries, tabs — comes from Sun
+        # Valley for a modern Windows 11 look. set_theme() replaces clam's
+        # widget styling but leaves our colour tokens (module attributes) intact.
         theme.apply(self)
+        try:
+            import sv_ttk
+
+            sv_ttk.set_theme("dark" if theme.current_mode() == "dark" else "light")
+            # Match the plain-Tk window background (padding, canvas parents) to
+            # Sun Valley's surface so no clam-grey shows through at the edges.
+            bg = ttk.Style(self).lookup("TFrame", "background")
+            if bg:
+                self.configure(background=bg)
+        except Exception:
+            pass  # fall back to our own clam-based chrome
 
     def _render_ui(self) -> None:
         """Build window title, menu, main screen and status bar from scratch."""
@@ -374,8 +387,13 @@ class HashToolApp(tk.Tk):
         win.withdraw()
         win.transient(self)
         win.protocol("WM_DELETE_WINDOW", win.withdraw)
+        # Do NOT call theme.apply() here: it switches the global ttk theme back
+        # to clam and would undo Sun Valley for the whole app. ttk styling is
+        # global, so this window already has it — just match its plain-Tk bg.
         try:
-            theme.apply(win)
+            bg = ttk.Style(self).lookup("TFrame", "background")
+            if bg:
+                win.configure(background=bg)
         except Exception:
             pass
         self._tool_windows.append(win)

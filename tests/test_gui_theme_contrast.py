@@ -592,35 +592,45 @@ class BadgeCanvasTests(unittest.TestCase):
         known = {v.lower() for v in theme.text_grounds().values()}
         # The progress bar is a filled indicator, not a text ground.
         known.add(theme.ACCENT.lower())
+        # Sun Valley supplies the ttk widget chrome now, and the plain-tk
+        # widgets we place (canvas, text) take their background from it via
+        # TrustCheckView._bg. Add its surfaces so the check still has teeth for
+        # a plain-tk widget put on a colour nobody measured.
+        for cls in ("TFrame", "TLabelframe", "TButton", "TEntry", "TNotebook"):
+            g = style.lookup(cls, "background")
+            if g:
+                try:
+                    known.add(self._hex(g).lower())
+                except (tk.TclError, ValueError):
+                    pass
 
         offenders: list[str] = []
 
         def walk(widget) -> None:
             cls = widget.winfo_class()
-            # isinstance, not a name prefix: "Text", "Toplevel" and "Tk" all
-            # start with a T and none of them is a ttk widget.
-            if isinstance(widget, ttk.Widget):
-                raw = style.lookup(cls, "background")
-            else:
+            # The ttk theme (Sun Valley) owns every ttk widget's ground. What
+            # this still guards is the plain tk widgets it never touches —
+            # canvases and text areas whose ground we chose ourselves.
+            if not isinstance(widget, ttk.Widget):
                 try:
                     raw = widget.cget("bg")
                 except tk.TclError:
                     raw = ""
-            if raw:
-                try:
-                    ground = self._hex(raw).lower()
-                except tk.TclError:
-                    ground = raw
-                if ground not in known:
-                    offenders.append(f"{cls} on {ground}")
+                if raw:
+                    try:
+                        ground = self._hex(raw).lower()
+                    except tk.TclError:
+                        ground = raw
+                    if ground not in known:
+                        offenders.append(f"{cls} on {ground}")
             for child in widget.winfo_children():
                 walk(child)
 
         walk(self.app)
         self.assertEqual(
             sorted(set(offenders)), [],
-            "these widgets sit on a ground no contrast ratio was measured "
-            "against, so the text on them is unchecked",
+            "these plain-tk widgets sit on a ground no contrast ratio was "
+            "measured against, so the text on them is unchecked",
         )
 
     def test_the_badge_is_legible_in_every_state_it_draws(self) -> None:
