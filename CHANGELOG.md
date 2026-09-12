@@ -88,6 +88,35 @@ claim, which turned out to be less than it looked.
 - The three tests are left failing there on purpose. Loosening them to pass
   would hide a real environmental limitation.
 
+## [2.1.0] — 2026-09-12
+
+The application became one screen. Everything a first-time user needs is now in
+a single window — drop a file, read the verdict — and everything technical
+moved out of the way without being removed.
+
+### Changed
+- **The four tabs collapsed to one screen.** Trust Check fills the window;
+  History, Settings and the power-user Hash/Verify/Report tools moved to a
+  Tools menu that opens each in its own window, hidden until asked for. No
+  feature was removed — every one is a click away.
+- **The main screen hides what a beginner does not need.** The SHA-256
+  fingerprint, the save/export buttons and the per-check detail tabs now sit
+  behind one "İleri" toggle. The first screen is: pick a file, read the verdict.
+- **A modern Windows 11 look.** Widget styling now comes from the Sun Valley
+  theme (`sv-ttk`) — rounded buttons, a real accent action, proper dark/light
+  surfaces — while the app keeps the text, risk and badge colours it measured
+  for contrast. `sv-ttk` is optional; the app falls back to its own styling if
+  it is missing, and the GUI build bundles it with `--collect-data sv_ttk`.
+- `ScanController`'s state enum was renamed `ScanState` → `ControllerState` so
+  it no longer shadows the scan-progress `ScanState` in `core.hash_utils`. Enum
+  values are unchanged, so nothing serialised moves.
+
+### Fixed
+- **Logs are written where they persist.** The log file moved from an
+  exe-adjacent `logs/` dir — which in a PyInstaller onefile build is a temporary
+  `_MEI` directory that vanishes on exit — to the per-user data dir the settings
+  already use (`%LOCALAPPDATA%\HashTool\logs`), with a source-adjacent fallback.
+
 ## [2.0.0] — 2026-08-20
 
 A security and correctness revision. Several changes are deliberately

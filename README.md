@@ -5,22 +5,43 @@ file is. Starting in v1.2 the main surface is a beginner-friendly
 **"Güven Kontrolü"** screen that hashes a file, looks the hash up on
 VirusTotal, checks the Windows digital signature, compares against a
 local fingerprint and shows a plain-language risk summary — without
-ever uploading the file. The original CLI and the **Advanced** tab
-keep all of v1.1's hash / verify / report power.
+ever uploading the file. The original CLI and the **Gelişmiş** tools (now in
+the **Araçlar** menu) keep all of v1.1's hash / verify / report power.
 
-> **Status:** v2.0.0 — a security and correctness revision, with breaking
-> changes to the CLI contract. 632 passing unit tests, 0 skipped.
+> **Status:** v2.1.0 — a single-page redesign with a modern Windows 11 look
+> (Sun Valley). 634 passing unit tests, 0 skipped.
 
-![Güven Kontrolü, koyu tema](docs/screenshots/main-dark.png)
+![Güven Kontrolü — tek sayfa, koyu tema](docs/screenshots/main-dark.png)
 
-![Güven Kontrolü, açık tema](docs/screenshots/main-light.png)
-
-Both are the same build, v2.0.0, photographed through Win32 rather than
-recreated. The menu strip along the top stays light in the dark shot because
-Windows draws it and ignores what Tk is told — a limitation named here rather
-than cropped out.
+The whole application is one screen now: drop a file, read the verdict. History,
+Settings and the power-user tools live in the **Araçlar** menu, and everything
+technical on the main screen sits behind one **Göster** ("İleri") toggle.
+Photographed through Win32 rather than recreated. The menu strip along the top
+stays light because Windows draws it and ignores what Tk is told — a limitation
+named here rather than cropped out.
 
 ---
+
+## What is new in v2.1.0
+
+The application became one screen. For a first-time user the whole surface is:
+drop a file, read the verdict. Nothing was removed — everything technical moved
+out of the way.
+
+- **One screen instead of four tabs.** Güven Kontrolü fills the window;
+  History, Settings and the Hash / Verify / Report power tools moved to the
+  **Araçlar** menu, each opening in its own window.
+- **The main screen hides what a beginner does not need.** The SHA-256
+  fingerprint, the save/export buttons and the detail tabs sit behind one
+  **Göster** ("İleri") toggle.
+- **A modern Windows 11 look** via the Sun Valley theme (`sv-ttk`), while the
+  app keeps the palette it measured for contrast. Optional: the GUI falls back
+  to its own styling if `sv-ttk` is missing, and the build bundles it with
+  `--collect-data sv_ttk`.
+- **Logs persist** — moved to `%LOCALAPPDATA%\HashTool\logs` so a PyInstaller
+  onefile build no longer loses them to a temporary directory.
+
+See [CHANGELOG.md](CHANGELOG.md) under `[2.1.0]` for the full account.
 
 ## What is new in v2.0.0
 
@@ -291,14 +312,15 @@ local fingerprint) still works.
 
 ### How to scan a file
 
-1. **Güven Kontrolü** tab → click **Dosya Seç…** (or drag a file onto
-   the window if `windnd` is installed).
+1. On the main screen click **Dosya Seç…** (or drag a file onto the window if
+   `windnd` is installed).
 2. Click **Taramayı Başlat**.
 3. Read the risk badge (Düşük / Orta / Yüksek / Bilinmiyor) and the
    short summary at the top.
-4. Click **Teknik Detaylar → Göster ▾** if you want the full hashes,
-   raw VirusTotal stats and signature details.
-5. Optional next steps:
+4. Click **Göster ▾** ("İleri") if you want the SHA-256 fingerprint, the
+   save/export buttons and the full detail tabs (hashes, raw VirusTotal stats,
+   signature details).
+5. Optional next steps (under **Göster ▾**):
    - **Parmak İzini Kaydet** — remember this file's SHA-256 so the
      next scan will tell you if the file changed.
    - **Raporu Kaydet (JSON / HTML)** — export a shareable report.
@@ -308,7 +330,7 @@ Cancellation is cooperative, so the button shows *İptal ediliyor…* until the
 worker reaches its next stage — a VirusTotal or signature check already in
 flight still has to return.
 
-The other top-level tabs:
+The other tools live in the **Araçlar** menu, each opening in its own window:
 
 - **Geçmiş** — last N scans, double-click a row to re-run the check.
 - **Ayarlar** — VirusTotal key (with **Anahtarı Kaldır** to delete a stored

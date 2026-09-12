@@ -41,12 +41,17 @@ REM 510 modules, requests, windnd and colorama included, because PyInstaller
 REM reads imports inside functions and try/except blocks too. So they are
 REM gone, and the way to re-check after a refactor is to build twice and
 REM diff build\HashToolGUI\PYZ-00.toc against the flagless one.
+REM --collect-data sv_ttk: sv-ttk ships its Sun Valley theme as .tcl data
+REM files. Without them set_theme() raises in the frozen EXE and the GUI
+REM silently falls back to the plain clam styling — so the modern look would
+REM never reach anyone running the built executable.
 "%PY%" -m PyInstaller ^
     --onefile ^
     --noconsole ^
     --clean ^
     --noconfirm ^
     --name HashToolGUI ^
+    --collect-data sv_ttk ^
     gui_main.py || goto :error
 
 echo.
