@@ -57,6 +57,7 @@ except Exception as exc:  # pragma: no cover - depends on the machine
 # entry added merely to silence a failure would be a lie about the interface.
 ALLOWED_IDENTICAL = {
     "VirusTotal",              # product name
+    "torpilstudio.com",        # studio website — a URL, identical in every language
     "Türkçe",                  # language names are shown in their own language
     "English",                 #   so a user can find theirs without reading
     "MD5:",                    # algorithm names

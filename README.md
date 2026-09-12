@@ -10,6 +10,8 @@ the **Araçlar** menu) keep all of v1.1's hash / verify / report power.
 
 > **Status:** v2.1.0 — a single-page redesign with a modern Windows 11 look
 > (Sun Valley). 634 passing unit tests, 0 skipped.
+>
+> **Geliştirici / By:** Torpil Studio — [torpilstudio.com](https://torpilstudio.com)
 
 ![Güven Kontrolü — tek sayfa, koyu tema](docs/screenshots/main-dark.png)
 

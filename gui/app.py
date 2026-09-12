@@ -322,6 +322,14 @@ class HashToolApp(tk.Tk):
         helpmenu.add_command(label=t("menu.about"), command=self._show_about)
         menubar.add_cascade(label=t("menu.help"), menu=helpmenu)
 
+        # Studio link on the menu bar — visible on the main screen, opens the
+        # site in a browser. On the status bar it turned out to reliably trip a
+        # Tk teardown crash in the test suite; the menu bar does not.
+        menubar.add_command(
+            label=t("footer.studio"),
+            command=lambda: self._open_url("https://torpilstudio.com"),
+        )
+
         for menu in (menubar, filemenu, settingsmenu, langmenu, toolsmenu, helpmenu):
             theme.style_menu(menu)
         self.config(menu=menubar)
@@ -722,6 +730,13 @@ class HashToolApp(tk.Tk):
         self.cancel_button.state(["disabled"])
 
     # ------------------------------------------------------------------
+    def _open_url(self, url: str) -> None:
+        import webbrowser
+        try:
+            webbrowser.open_new_tab(url)
+        except Exception:
+            log.exception("could not open %s", url)
+
     def _show_about(self) -> None:
         messagebox.showinfo(
             t("about.title"),
