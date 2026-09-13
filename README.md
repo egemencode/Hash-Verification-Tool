@@ -690,13 +690,29 @@ registry footprint.
 ## Running the tests
 
 ```powershell
-python -m unittest discover -s tests -v
+python -m unittest discover -s tests -t . -v
 ```
 
-The test suite is pure standard library — no extra dependencies
-needed. 23 tests covering hashing, manifest round-trip, verifier
-classification, `count_files`, `ProgressEvent.percent` and the
-progress-callback behaviour on both folder hashing and verification.
+The test suite is pure standard library — no extra dependencies needed. 644
+tests, 0 skipped, covering hashing and manifest round-trips, signature
+verification, the risk engine, the CLI's exit codes, and the GUI itself.
+
+The GUI tests build real Tk windows, so a run opens and closes dozens of them
+over whatever you are working on. Send them to another monitor with
+`HASHTOOL_WINDOW_POS` — Tk's `+X+Y`, where a coordinate on a screen left of
+the primary one is negative:
+
+```powershell
+$env:HASHTOOL_WINDOW_POS = "+-1900+80"   # second monitor, to the left
+python -m unittest discover -s tests -t .
+```
+
+The official gate is stricter than a single run — several rounds, and any
+skip is a failure:
+
+```powershell
+python tools\run_suite_gate.py
+```
 
 ---
 

@@ -14,6 +14,7 @@ Design notes
 
 from __future__ import annotations
 
+import os
 import queue
 import sys
 import threading
@@ -218,6 +219,7 @@ class HashToolApp(tk.Tk):
         # empty region under the simple view.
         self.geometry(f"1020x{TrustCheckView.COLLAPSED_HEIGHT}")
         self.minsize(880, TrustCheckView.COLLAPSED_HEIGHT)
+        self._place_window()
         self._apply_style()
 
         self._menubar: Optional[tk.Menu] = None
@@ -286,6 +288,30 @@ class HashToolApp(tk.Tk):
         self._build_main()
         self._build_statusbar()
         self.status_var.set(t("status.ready"))
+
+    # Tk's own spelling for "put it here": +X+Y, and a coordinate on a monitor
+    # left of the primary one is negative, so "+-1920+80" is a real value.
+    WINDOW_POSITION_ENV = "HASHTOOL_WINDOW_POS"
+
+    def _place_window(self) -> None:
+        """
+        Honour HASHTOOL_WINDOW_POS, if it is set, for where the window opens.
+
+        Written for the test suite, which builds and destroys real windows by
+        the dozen: with nowhere to put them they flash over whatever is on the
+        main screen for the length of a run. Pointing them at a second monitor
+        makes the suite something you can run while working.
+
+        Unset — which is every normal launch — this does nothing, and a value
+        Tk cannot parse is ignored rather than allowed to stop the app opening.
+        """
+        position = os.environ.get(self.WINDOW_POSITION_ENV, "").strip()
+        if not position:
+            return
+        try:
+            self.geometry(position)
+        except tk.TclError:
+            pass
 
     def _build_menu(self) -> None:
         menubar = tk.Menu(self)
