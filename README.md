@@ -8,8 +8,8 @@ local fingerprint and shows a plain-language risk summary — without
 ever uploading the file. The original CLI and the **Gelişmiş** tools (now in
 the **Araçlar** menu) keep all of v1.1's hash / verify / report power.
 
-> **Status:** v2.1.0 — a single-page redesign with a modern Windows 11 look
-> (Sun Valley). 634 passing unit tests, 0 skipped.
+> **Status:** v2.1.1 — a single-page redesign with a modern Windows 11 look
+> (Sun Valley). 640 passing unit tests, 0 skipped.
 >
 > **Geliştirici / By:** Torpil Studio — [torpilstudio.com](https://torpilstudio.com)
 
@@ -23,6 +23,16 @@ stays light because Windows draws it and ignores what Tk is told — a limitatio
 named here rather than cropped out.
 
 ---
+
+## What is new in v2.1.1
+
+- **Dropping a file scans it.** Choosing one through the picker does too.
+  Handing over a file is the request; the extra click was a step nobody asked
+  for.
+- **The result card no longer claims a scan that is not running.** Selecting a
+  file used to paint "Scanning the file, please wait…" with nothing started —
+  a wait that could not end. It now shows the same idle prompt the window
+  opens with.
 
 ## What is new in v2.1.0
 

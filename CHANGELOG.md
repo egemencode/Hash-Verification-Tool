@@ -88,6 +88,40 @@ claim, which turned out to be less than it looked.
 - The three tests are left failing there on purpose. Loosening them to pass
   would hide a real environmental limitation.
 
+## [2.1.1] — 2026-09-13
+
+A bug report with a screenshot: a dropped file, the card reading "Scanning the
+file, please wait…", and it never changing. Nothing was stuck. No scan had
+been started — and the screen was saying otherwise.
+
+### The card claimed work nobody was doing
+- `_clear_summary()` reset the result card *into* the in-progress state. Every
+  caller but one is a reset rather than a start — choosing a file, opening a
+  history row whose file has since been deleted — so merely picking a file
+  painted a scan that did not exist. The status bar, wired to the real scan,
+  honestly read "Ready." next to it. The screen then never changed, because
+  there was no scan to change it.
+- The reset now returns the card to its opening state (a muted "—" badge and
+  the idle prompt, exactly what the window shows on launch). The in-progress
+  state moved to `_show_scanning()`, called from `_on_scan()` alone, so the
+  sentence that tells the user to wait can only appear when a worker is
+  running.
+
+### Handing over a file is the request
+- Dropping a file, and choosing one through the picker, now start the scan.
+  Hunting for a button afterwards was a step nobody asked for, and it is what
+  turned the misleading card into an indefinite wait. Cancel is on screen for
+  a file dropped by mistake.
+- The drop handler became `_on_files_dropped()`, a method rather than a
+  closure buried in the widget build, so what a drop actually *does* is under
+  test. `_set_selected_path()` now reports whether it accepted the file.
+
+### Tests
+- `tests/test_gui_selection_state.py` — six tests over real Tk widgets: that
+  choosing a file and a missing history row do not claim a scan is running,
+  that starting one does, and that a drop and the picker each begin a scan
+  while an unreadable path begins nothing. The first two fail on 2.1.0.
+
 ## [2.1.0] — 2026-09-12
 
 The application became one screen. Everything a first-time user needs is now in

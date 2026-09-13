@@ -212,8 +212,11 @@ class HashToolApp(tk.Tk):
             local_store_warning=self._local_store.load_warning,
         )
 
-        self.geometry("1020x760")
-        self.minsize(880, 600)
+        # Sized for the collapsed screen; showing the İleri area grows the
+        # window (TrustCheckView._set_window_height) rather than leaving a
+        # large empty region under the simple view.
+        self.geometry("1020x470")
+        self.minsize(880, 430)
         self._apply_style()
 
         self._menubar: Optional[tk.Menu] = None
@@ -492,15 +495,26 @@ class HashToolApp(tk.Tk):
         # Determinate by default so we can display an actual percentage
         # as soon as the worker starts emitting ProgressEvents.
         self.progress = ttk.Progressbar(bar, mode="determinate", length=200, maximum=100)
-        self.progress.pack(side="right", padx=8, pady=4)
         # In the status bar rather than on a tab: one worker slot serves Hash,
         # Verify and Report, so one control stops whichever is running.
         self.cancel_button = ttk.Button(
             bar, text=t("btn.cancel"), command=self._on_cancel
         )
-        self.cancel_button.pack(side="right", padx=(0, 4), pady=4)
         self.cancel_button.state(["disabled"])
+        # Deliberately not packed here. These belong to the Advanced tools'
+        # worker; on the single-page screen an empty progress bar and a dead
+        # Cancel button are just clutter. _show_worker_controls() puts them on
+        # screen for exactly as long as a job runs.
         self._statusbar = bar
+
+    def _show_worker_controls(self) -> None:
+        """Reveal the worker's progress bar and Cancel button."""
+        self.progress.pack(side="right", padx=8, pady=4)
+        self.cancel_button.pack(side="right", padx=(0, 4), pady=4)
+
+    def _hide_worker_controls(self) -> None:
+        self.progress.pack_forget()
+        self.cancel_button.pack_forget()
 
     # ------------------------------------------------------------------
     # Language switching — tear down chrome, rebuild in the new locale.
@@ -643,6 +657,7 @@ class HashToolApp(tk.Tk):
         self.status_var.set(status)
         self.progress.configure(mode="determinate", maximum=100)
         self.progress["value"] = 0
+        self._show_worker_controls()
         self._worker = _Worker(target)
         self.cancel_button.state(["!disabled"])
         self._worker.start()
@@ -728,6 +743,7 @@ class HashToolApp(tk.Tk):
         self.status_var.set(status)
         self._worker = None
         self.cancel_button.state(["disabled"])
+        self._hide_worker_controls()
 
     # ------------------------------------------------------------------
     def _open_url(self, url: str) -> None:

@@ -219,7 +219,10 @@ class TrustCheckView(ttk.Frame):
         # read the verdict, done. Everything technical — the SHA-256 string,
         # the save/export buttons, the per-check detail tabs — lives inside a
         # collapsed "İleri" area they never have to open.
-        self.rowconfigure(3, weight=1)
+        # Row 3 only claims space once the İleri area is actually shown. While
+        # it is collapsed a weighted empty row stretches the window around
+        # nothing, which is what left the screen top-heavy.
+        self.rowconfigure(3, weight=0)
 
         self._build_drop_zone(row=0)
         self._build_summary_panel(row=1)
@@ -298,17 +301,21 @@ class TrustCheckView(ttk.Frame):
         # Privacy state must be visible on the main screen, not buried in
         # Settings: the user should always know whether anything leaves the
         # machine before they start a scan.
+        # Both live on the second row: packed beside the buttons, the online
+        # state pushed the row past the right edge and got clipped. Here the
+        # notice sits left and the state right-aligns under the buttons it
+        # qualifies, so the row ends where the panel does.
         self.online_state_var = tk.StringVar()
-        ttk.Label(
-            btns, textvariable=self.online_state_var, foreground=theme.TEXT
-        ).pack(side="left", padx=(16, 0))
         # NOTE: `frame` is laid out with grid; adding a packed child here
         # raises TclError and the whole app fails to open. One geometry
         # manager per container.
         ttk.Label(
-            frame, text=t("privacy.notice"), foreground=theme.MUTED, wraplength=680,
+            frame, text=t("privacy.notice"), foreground=theme.MUTED, wraplength=620,
             justify="left",
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ).grid(row=1, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(
+            frame, textvariable=self.online_state_var, foreground=theme.TEXT
+        ).grid(row=1, column=1, sticky="e", padx=(16, 0), pady=(10, 0))
         self._refresh_online_state()
 
         # Lightweight drag-and-drop via the windnd library if installed.
@@ -316,20 +323,27 @@ class TrustCheckView(ttk.Frame):
         try:
             import windnd  # type: ignore
 
-            def _on_drop(paths: list[bytes]) -> None:
-                # Runs inside a ctypes window procedure. An exception escaping
-                # here skips the library's DragFinish and leaks the drop
-                # handle, and the user sees nothing happen at all.
-                try:
-                    if not paths:
-                        return
-                    self._set_selected_path(decode_dropped_path(paths[0]))
-                except Exception:  # noqa: BLE001 - must not unwind into ctypes
-                    log.exception("drag-and-drop handling failed")
-
-            windnd.hook_dropfiles(self, func=_on_drop, **DROP_HOOK_KWARGS)
+            windnd.hook_dropfiles(self, func=self._on_files_dropped, **DROP_HOOK_KWARGS)
         except Exception:
             pass
+
+    def _on_files_dropped(self, paths: list[bytes]) -> None:
+        """
+        Handle a drag-and-drop.
+
+        A method rather than a closure so the drop path itself can be tested:
+        what a drop *does* is the behaviour users meet first, and it was
+        wrong once already.
+        """
+        # Runs inside a ctypes window procedure. An exception escaping here
+        # skips the library's DragFinish and leaks the drop handle, and the
+        # user sees nothing happen at all.
+        try:
+            if not paths:
+                return
+            self._choose_and_scan(decode_dropped_path(paths[0]))
+        except Exception:  # noqa: BLE001 - must not unwind into ctypes
+            log.exception("drag-and-drop handling failed")
 
     def _refresh_online_state(self) -> None:
         """Show whether this scan will contact VirusTotal."""
@@ -354,7 +368,9 @@ class TrustCheckView(ttk.Frame):
         self.badge_canvas = tk.Canvas(
             frame, width=140, height=58, highlightthickness=0, bg=self._bg(frame)
         )
-        self.badge_canvas.grid(row=0, column=0, sticky="w", padx=(0, 16), rowspan=3)
+        # "nw", not "w": spanning three rows, a centred badge floats below the
+        # headline it belongs to. Top-aligned, the two read as one line.
+        self.badge_canvas.grid(row=0, column=0, sticky="nw", padx=(0, 16), rowspan=3)
         self._draw_badge(theme.MUTED, "—")
 
         self.headline_var = tk.StringVar(value=t("trust.summary.idle"))
@@ -380,6 +396,9 @@ class TrustCheckView(ttk.Frame):
         self.bullets_text.configure(background=self._bg(frame))
         self.bullets_text.grid(row=1, column=1, sticky="ew", pady=(8, 8))
         self.bullets_text.configure(state="disabled")
+        # Hidden until a scan produces bullets: an empty box under the headline
+        # reads as a panel that failed to load and leaves the card lopsided.
+        self.bullets_text.grid_remove()
         # Narrowing the window re-wraps the sentences, so what fits changes
         # with it. Width only: reacting to height would have this handler
         # answer the event its own resize produces.
@@ -476,12 +495,32 @@ class TrustCheckView(ttk.Frame):
     def _toggle_details(self) -> None:
         if self._details_visible:
             self._advanced_container.grid_forget()
+            self.rowconfigure(3, weight=0)
             self._details_visible = False
             self._details_toggle_var.set(t("trust.details.show"))
+            self._set_window_height(540)
         else:
             self._advanced_container.grid(row=3, column=0, sticky="nsew")
+            self.rowconfigure(3, weight=1)
             self._details_visible = True
             self._details_toggle_var.set(t("trust.details.hide"))
+            self._set_window_height(880)
+
+    def _set_window_height(self, height: int) -> None:
+        """Fit the window to what is on screen, keeping its width.
+
+        The collapsed screen needs roughly two thirds of the height the
+        expanded one does; without this the simple view opens with a large
+        empty area beneath it, and the expanded one has to be resized by hand.
+        No update_idletasks() here: this runs from a button callback, and
+        forcing a redraw mid-callback is exactly the pattern this suite's
+        known Tk teardown crash lives in.
+        """
+        try:
+            top = self.winfo_toplevel()
+            top.geometry(f"{top.winfo_width() or 1020}x{height}")
+        except tk.TclError:  # pragma: no cover - window already gone
+            pass
 
     def _make_kv_tab(self, parent: ttk.Notebook, title: str) -> dict[str, Any]:
         frame = ttk.Frame(parent, padding=10)
@@ -530,16 +569,29 @@ class TrustCheckView(ttk.Frame):
             return
         path = filedialog.askopenfilename(title=t("trust.picker.file_title"))
         if path:
-            self._set_selected_path(path)
+            self._choose_and_scan(path)
 
-    def _set_selected_path(self, path: str) -> None:
+    def _choose_and_scan(self, path: str) -> None:
+        """
+        Take the file the user just handed us and check it.
+
+        Handing over a file *is* the request. Making them find a button
+        afterwards is a step nobody asked for, and the report that prompted
+        this was exactly that: a file dropped, and then a wait for a scan
+        that needed one more click. Cancel is on screen for a wrong file.
+        """
+        if self._set_selected_path(path):
+            self._on_scan()
+
+    def _set_selected_path(self, path: str) -> bool:
+        """Point the view at *path*; False if it is not a file we can read."""
         p = Path(path)
         if not p.exists() or not p.is_file():
             messagebox.showwarning(
                 t("trust.invalid.title"),
                 t("trust.invalid.body", path=path),
             )
-            return
+            return False
         # The controller owns "which file are we talking about"; selecting a
         # new one invalidates any in-flight scan and the previous result.
         self._controller.select(str(p))
@@ -555,6 +607,7 @@ class TrustCheckView(ttk.Frame):
         # for this path. (Re-scan is enabled via the main scan button.)
         for btn in (self.export_json_btn, self.export_html_btn, self.remember_btn, self.rescan_btn):
             btn.state(["disabled"])
+        return True
 
     # ==================================================================
     # Scan flow (threaded)
@@ -571,6 +624,7 @@ class TrustCheckView(ttk.Frame):
         self._last_result = None
         self._clear_summary()
         self._clear_technical_tabs()
+        self._show_scanning()
 
         worker = threading.Thread(
             target=self._scan_worker, args=(session,), daemon=True
@@ -884,7 +938,12 @@ class TrustCheckView(ttk.Frame):
             for bullet in said.bullets:
                 self.bullets_text.insert("end", f"• {bullet}\n")
         self.bullets_text.configure(state="disabled")
-        self._fit_bullets()
+        # Only on screen when it has something in it (see _build_summary_panel).
+        if said and said.bullets:
+            self.bullets_text.grid()
+            self._fit_bullets()
+        else:
+            self.bullets_text.grid_remove()
         self.advice_var.set(said.advice if said else "")
 
         self._render_file_info(result)
@@ -1203,18 +1262,43 @@ class TrustCheckView(ttk.Frame):
     # Visual helpers
     # ==================================================================
     def _clear_summary(self) -> None:
-        self._draw_badge(theme.MUTED, t("trust.badge.scanning"))
-        self.headline_var.set(t("trust.summary.scanning"))
+        """
+        Put the card back to its opening state: nothing scanned yet.
+
+        This is a *reset*, and it used to paint "Scanning…" instead. Every
+        caller but one is resetting rather than starting work — choosing a
+        file, or opening a history row whose file has since been deleted — so
+        the card announced a scan nobody had started, and then never changed,
+        because there was no scan to change it. The status bar meanwhile read
+        "Ready.", which was the truth. Reported from the field as a scan that
+        hangs forever; nothing was hanging.
+
+        The in-progress state lives in _show_scanning, called from _on_scan.
+        """
+        self._draw_badge(theme.MUTED, "—")
+        self.headline_var.set(t("trust.summary.idle"))
         self.bullets_text.configure(state="normal")
         self.bullets_text.delete("1.0", "end")
         self.bullets_text.configure(state="disabled")
         # Back to the minimum: a box still tall enough for the last scan's
         # sentences, with nothing in it, reads as something failing to load.
         self.bullets_text.configure(height=self._BULLET_LINES_MIN)
+        self.bullets_text.grid_remove()
         self.advice_var.set("")
         self._sha256_entry.state(["!readonly"])
         self.sha256_var.set("—")
         self._sha256_entry.state(["readonly"])
+
+    def _show_scanning(self) -> None:
+        """
+        The only place that says a scan is under way.
+
+        Kept apart from _clear_summary so the sentence can only appear when a
+        worker really is running: it is the screen telling the user to wait,
+        and it has to be earned.
+        """
+        self._draw_badge(theme.MUTED, t("trust.badge.scanning"))
+        self.headline_var.set(t("trust.summary.scanning"))
 
     def _draw_badge(self, color: str, text: str) -> None:
         c = self.badge_canvas
