@@ -174,6 +174,20 @@ _LOCAL_KEYS = {
 class TrustCheckView(ttk.Frame):
     """Single-file trust-check workflow."""
 
+    # Window heights for the two states of this screen, at the 1020-pixel
+    # width the app opens at. Measured, not guessed — and the guessed ones
+    # were 123 and 189 pixels too tall, which is a quarter of the opening
+    # window left as empty grey below the last control.
+    #
+    # Constants rather than a runtime measurement, which was tried and
+    # withdrawn: resizing the window from a callback that Tk's update() is
+    # running kills the interpreter outright, and there is no moment in a
+    # toggle when the new layout is both calculated and safe to measure.
+    # tests/test_gui_window_fit.py measures the real layout and fails if
+    # either number drifts from it, so the check lives where it is safe.
+    COLLAPSED_HEIGHT = 347
+    EXPANDED_HEIGHT = 691
+
     def __init__(
         self,
         parent: ttk.Notebook,
@@ -498,23 +512,24 @@ class TrustCheckView(ttk.Frame):
             self.rowconfigure(3, weight=0)
             self._details_visible = False
             self._details_toggle_var.set(t("trust.details.show"))
-            self._set_window_height(540)
+            self._set_window_height(self.COLLAPSED_HEIGHT)
         else:
             self._advanced_container.grid(row=3, column=0, sticky="nsew")
             self.rowconfigure(3, weight=1)
             self._details_visible = True
             self._details_toggle_var.set(t("trust.details.hide"))
-            self._set_window_height(880)
+            self._set_window_height(self.EXPANDED_HEIGHT)
 
     def _set_window_height(self, height: int) -> None:
         """Fit the window to what is on screen, keeping its width.
 
-        The collapsed screen needs roughly two thirds of the height the
-        expanded one does; without this the simple view opens with a large
-        empty area beneath it, and the expanded one has to be resized by hand.
-        No update_idletasks() here: this runs from a button callback, and
-        forcing a redraw mid-callback is exactly the pattern this suite's
-        known Tk teardown crash lives in.
+        The collapsed screen needs roughly half the height the expanded one
+        does; without this the simple view opens with a large empty area
+        beneath it, and the expanded one has to be resized by hand.
+
+        No update_idletasks() here, and no measuring: this runs from a button
+        callback, and touching Tk's update from inside one is the crash this
+        codebase already knows about.
         """
         try:
             top = self.winfo_toplevel()

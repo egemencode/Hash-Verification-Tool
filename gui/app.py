@@ -212,11 +212,12 @@ class HashToolApp(tk.Tk):
             local_store_warning=self._local_store.load_warning,
         )
 
-        # Sized for the collapsed screen; showing the İleri area grows the
-        # window (TrustCheckView._set_window_height) rather than leaving a
-        # large empty region under the simple view.
-        self.geometry("1020x470")
-        self.minsize(880, 430)
+        # Sized for the collapsed screen, from the height its layout actually
+        # asks for; showing the İleri area grows the window
+        # (TrustCheckView._set_window_height) rather than leaving a large
+        # empty region under the simple view.
+        self.geometry(f"1020x{TrustCheckView.COLLAPSED_HEIGHT}")
+        self.minsize(880, TrustCheckView.COLLAPSED_HEIGHT)
         self._apply_style()
 
         self._menubar: Optional[tk.Menu] = None

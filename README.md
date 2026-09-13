@@ -8,8 +8,8 @@ local fingerprint and shows a plain-language risk summary — without
 ever uploading the file. The original CLI and the **Gelişmiş** tools (now in
 the **Araçlar** menu) keep all of v1.1's hash / verify / report power.
 
-> **Status:** v2.1.1 — a single-page redesign with a modern Windows 11 look
-> (Sun Valley). 640 passing unit tests, 0 skipped.
+> **Status:** v2.1.2 — a single-page redesign with a modern Windows 11 look
+> (Sun Valley). 644 passing unit tests, 0 skipped.
 >
 > **Geliştirici / By:** Torpil Studio — [torpilstudio.com](https://torpilstudio.com)
 
@@ -23,6 +23,14 @@ stays light because Windows draws it and ignores what Tk is told — a limitatio
 named here rather than cropped out.
 
 ---
+
+## What is new in v2.1.2
+
+- **The window is as tall as what is on it.** The opening screen wasted 123
+  pixels of empty grey below the last control, the expanded one 189.
+- **The idle card stopped describing a step that no longer exists** — it said
+  to press *Taramayı Başlat* after choosing a file, which 2.1.1 made
+  unnecessary.
 
 ## What is new in v2.1.1
 

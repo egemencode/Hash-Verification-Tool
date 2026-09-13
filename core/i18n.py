@@ -215,7 +215,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "trust.online.on": "Online check: On",
         "trust.online.off": "Online check: Off",
         "trust.summary.idle": (
-            "Pick a file and press “Start Scan” — the result will appear here."
+            "Choose a file, or drop it on this window — it is scanned right "
+            "away and the verdict appears here."
         ),
         "trust.fingerprint.hint": (
             "This code is the file's unique fingerprint. Same code = same "
@@ -929,8 +930,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "trust.online.on": "Çevrimiçi kontrol: Açık",
         "trust.online.off": "Çevrimiçi kontrol: Kapalı",
         "trust.summary.idle": (
-            "Bir dosya seçip “Taramayı Başlat” düğmesine bastığınızda sonuç "
-            "burada görünecek."
+            "Bir dosya seçin ya da bu pencereye sürükleyin — hemen taranır, "
+            "sonuç burada görünür."
         ),
         "trust.fingerprint.hint": (
             "Bu kod dosyanın benzersiz parmak izidir. Aynı kod = aynı dosya. "

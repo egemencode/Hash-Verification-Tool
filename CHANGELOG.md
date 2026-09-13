@@ -88,6 +88,32 @@ claim, which turned out to be less than it looked.
 - The three tests are left failing there on purpose. Loosening them to pass
   would hide a real environmental limitation.
 
+## [2.1.2] — 2026-09-13
+
+Two things the 2.1.1 screen still got wrong, both visible in a single
+screenshot of the opening window.
+
+### The idle card described a step that no longer exists
+- "Pick a file and press *Start Scan*" was written for a version where
+  choosing a file did nothing on its own. Since 2.1.1 it starts the scan, so
+  the card was giving instructions for a button the user does not need to
+  find. It now says what actually happens: choose a file or drop it on the
+  window, and it is scanned right away.
+
+### A quarter of the window was empty
+- The window opened at 470 pixels for a layout asking 347, and the expanded
+  view at 880 for one asking 691 — hand-picked numbers that the layout had
+  moved away from, leaving a wide grey band under the last control.
+- Both are now measured values, `TrustCheckView.COLLAPSED_HEIGHT` and
+  `EXPANDED_HEIGHT`, and `tests/test_gui_window_fit.py` builds the real
+  window and fails if either drifts from what the layout asks for.
+- Measuring at runtime instead was tried and withdrawn. Resizing the window
+  from a callback that Tk's `update()` is already running kills the
+  interpreter (`PyEval_RestoreThread ... the GIL is released`), and there is
+  no moment during a toggle when the new layout is both calculated and safe
+  to measure. The measurement belongs in the tests, where nothing is
+  re-entering Tk.
+
 ## [2.1.1] — 2026-09-13
 
 A bug report with a screenshot: a dropped file, the card reading "Scanning the
