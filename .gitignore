@@ -35,9 +35,6 @@ demo_data/
 data/
 hashtool_settings.json
 
-# Claude Code local config
-.claude/
-
 # Çalışma notları ve ham denetim çıktıları.
 # Bu dosyalar mutlak yerel yolları (C:\Users\<ad>\...), makine ayrıntılarını ve
 # iç inceleme promptlarını içeriyor; hiçbiri üründen bir şey tarif etmiyor.
