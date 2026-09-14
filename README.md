@@ -133,10 +133,10 @@ signature check. Both are failures of the *test process*.
 
 ## What was new in v1.2.0
 
-- **Güven Kontrolü tab** — pick one file, get a single Düşük / Orta /
+- **Güven Kontrolü, the main screen** — pick one file, get a single Düşük / Orta /
   Yüksek risk badge plus a Turkish-first explanation.
 - **VirusTotal hash lookup** (no file upload) — paste your free API key
-  in the *Ayarlar* tab and the app queries `files/{sha256}` for you.
+  in *Araçlar → Ayarlar* and the app queries `files/{sha256}` for you.
 - **Authenticode signature check** on Windows via PowerShell — surfaces
   signer name without bundling a native PE parser.
 - **Local fingerprint book** — remember a file's hash today, compare it
@@ -147,8 +147,9 @@ signature check. Both are failures of the *test process*.
   re-scan.
 - **JSON / HTML reports** — single-file shareable trust report.
 
-The original *Advanced* tab still exposes Hash / Verify / Report and
-all CLI subcommands (`hash`, `verify`, `report`) work unchanged.
+The original *Gelişmiş* tools still expose Hash / Verify / Report, now in a
+window of their own under *Araçlar*, and all CLI subcommands (`hash`,
+`verify`, `report`) work unchanged.
 
 ![v1.2.0'nin aynı ekranı](docs/screenshots/main.png)
 
@@ -217,14 +218,14 @@ Hash Verification Tool/
 │   └── trust_pipeline.py         # Orchestrates the trust-check flow
 ├── gui/
 │   ├── __init__.py
-│   ├── app.py                    # Tk root + tab wiring + thread plumbing
+│   ├── app.py                    # Tk root + window wiring + thread plumbing
 │   ├── theme.py                  # Light / dark palettes and the chrome
 │   ├── trust_presenter.py        # Verdict → what the screen shows
 │   ├── i18n.py                   # Re-export shim over core.i18n
 │   └── views/
 │       ├── trust_check_view.py   # Main beginner-friendly screen
-│       ├── history_view.py       # Scan history tab
-│       └── settings_view.py      # VirusTotal / history / language tab
+│       ├── history_view.py       # Scan history (Araçlar window)
+│       └── settings_view.py      # VirusTotal / history / language (Araçlar window)
 ├── utils/
 │   ├── __init__.py
 │   ├── logger.py                 # Logging helper (GUI-safe)
@@ -321,7 +322,7 @@ machine. Settings and history are written next to the EXE
 
 ### First-run setup (both options)
 
-1. Switch to the **Ayarlar** tab.
+1. Open **Araçlar → Ayarlar** from the menu bar.
 2. Get a free API key at <https://www.virustotal.com/gui/my-apikey>
    and paste it into the *API Anahtarı* field.
 3. Click **Anahtarı Test Et** to confirm it works, then **Kaydet**.
