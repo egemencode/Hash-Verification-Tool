@@ -841,14 +841,19 @@ class TrustCheckView(ttk.Frame):
         self.headline_var.set(headline)
         self.advice_var.set(f"{detail}  {advice}")
 
-    def rescan_path(self, path: str) -> bool:
+    def rescan_path(self, path: str, *, missing_message: Optional[str] = None) -> bool:
         """
-        Scan *path* specifically (e.g. a history row).
+        Scan *path* specifically (e.g. a history row, or a right-clicked file).
 
         Returns False — having started nothing and cleared the stale result —
         when the file no longer exists. The caller must not fall back to the
         previous selection: that would attach the history entry's identity to
         a completely different file.
+
+        *missing_message* is what the screen says in that case. A file handed
+        over by Explorer that has since been deleted is not "missing from the
+        history", and telling the user it is would send them looking in the
+        wrong place.
         """
         if not Path(path).is_file():
             self._controller.rescan(path)      # moves to ERROR, clears state
@@ -856,7 +861,7 @@ class TrustCheckView(ttk.Frame):
             self._last_result = None
             self._clear_summary()
             self._clear_technical_tabs()
-            self.file_label_var.set(t("trust.missing_from_history"))
+            self.file_label_var.set(missing_message or t("trust.missing_from_history"))
             self.scan_button.state(["disabled"])
             for btn in (self.export_json_btn, self.export_html_btn,
                         self.remember_btn, self.rescan_btn):

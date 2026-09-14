@@ -88,6 +88,54 @@ claim, which turned out to be less than it looked.
 - The three tests are left failing there on purpose. Loosening them to pass
   would hide a real environmental limitation.
 
+## [2.2.0] — 2026-09-15
+
+Right-click a file in Explorer and check it, without opening the app first.
+
+### Verify this file
+- A per-user shell verb under `HKCU\Software\Classes\*\shell`, so it needs
+  no administrator prompt, touches no other account, and is one key to delete.
+  It is **off until asked for**: registering a verb changes the user's system,
+  and a tool does not do that because it was installed. The switch is in
+  *Araçlar → Ayarlar*.
+- Explorer launches `HashToolGUI.exe --verify "<file>"`, which opens the
+  window on that file and scans it immediately — the same path a dropped
+  file takes since 2.1.1.
+- Every file type, not a list of "risky" extensions. Such a list is always
+  missing one, and the tool answers questions about documents and archives
+  (has this changed since I last saw it?) as readily as about executables.
+  The file that prompted the last bug report was an `.apk`.
+- The entry stores an absolute path, so moving or reinstalling the app would
+  leave it calling a location nothing lives at. Startup rewrites it when the
+  setting is on, and that repairs itself silently.
+- Running from a source checkout registers `pythonw.exe` plus `gui_main.py`,
+  not `python.exe`: a console window flashing behind the app on every
+  right-click is not a detail anyone should have to live with.
+
+**On Windows 11 this lands under "Show more options"** (Shift+F10 opens that
+menu directly). The short first-level menu is only reachable through an
+`IExplorerCommand` handler in a package with an identity — MSIX or sparse,
+and signed — which a PyInstaller build cannot be. Said here rather than
+discovered after installing.
+
+### Tests
+- `tests/test_shell_integration.py` and `tests/test_gui_entry_point.py`, 30
+  tests. Registry tests write under a private base and delete the whole tree
+  afterwards, so running the suite never edits the shell of the machine it
+  runs on.
+- Covered: quoting (an unquoted `C:\Program Files` path is two arguments and
+  a menu entry that does nothing), repair after the executable moves, the
+  label following a language switch, and a failed write reporting itself
+  instead of leaving a ticked box that does nothing.
+
+### A trap worth recording
+The hint under the new checkbox began life as its own `ttk.Label`. That one
+widget — with any text at all, a single character included — reliably killed
+the Tk interpreter during the suite's language-switch test, while the real
+application handled the same screen and three language switches without
+complaint. The hint now rides on the checkbox's own label. The underlying
+fragility is `docs/P1-BACKLOG.md` item 12, still unexplained.
+
 ## [2.1.2] — 2026-09-13
 
 Two things the 2.1.1 screen still got wrong, both visible in a single

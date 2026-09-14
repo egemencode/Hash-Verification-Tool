@@ -77,8 +77,16 @@ class SettingsView(ttk.Frame):
             variable=self.autoquery_var,
         ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
+        # Windows integration. Off until asked for: this one writes to the
+        # shell, which is the user's system rather than the app's own.
+        self.shell_menu_var = tk.BooleanVar(value=self._settings.shell_context_menu)
+        ttk.Checkbutton(
+            vt_frame,
+            text=t("settings.shell.menu"),
+            variable=self.shell_menu_var,
+        ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(10, 0))
         btns = ttk.Frame(vt_frame)
-        btns.grid(row=3, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        btns.grid(row=5, column=0, columnspan=3, sticky="e", pady=(12, 0))
         # Leftmost, and deliberately far from the accented "Kaydet": the only
         # destructive control on this screen should not sit under the button
         # the user reaches for by habit.
@@ -136,6 +144,7 @@ class SettingsView(ttk.Frame):
     def _on_save(self) -> None:
         self._settings.virustotal_api_key = self.api_key_var.get().strip()
         self._settings.virustotal_autoquery = bool(self.autoquery_var.get())
+        self._settings.shell_context_menu = bool(self.shell_menu_var.get())
         try:
             limit = int(self.history_limit_var.get())
         except (tk.TclError, ValueError):

@@ -26,6 +26,7 @@ from tkinter.scrolledtext import ScrolledText
 from typing import Any, Callable, Optional
 
 from core import __version__
+from utils import shell_integration
 from core.hash_utils import (
     DEFAULT_ALGORITHM,
     SUPPORTED_ALGORITHMS,
@@ -182,7 +183,7 @@ class _Worker:
 # Main application window
 # ======================================================================
 class HashToolApp(tk.Tk):
-    def __init__(self) -> None:
+    def __init__(self, initial_path: Optional[str] = None) -> None:
         super().__init__()
 
         # Handles of every after() script we scheduled, so teardown can cancel
@@ -246,10 +247,40 @@ class HashToolApp(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
         self._render_ui()
+        self._refresh_shell_menu()
 
         if self._startup_warning is not None:
             # Deferred so the dialog appears over a drawn window.
             self.schedule(300, self._show_startup_warning)
+
+        if initial_path and self.trust_view is not None:
+            # Explorer handed us a file. Scanning it is the whole request —
+            # opening a window and waiting for another click would repeat the
+            # step the context-menu entry exists to remove.
+            self.trust_view.rescan_path(
+                initial_path, missing_message=t("trust.missing_from_shell")
+            )
+
+    def _refresh_shell_menu(self) -> None:
+        """
+        Keep the context-menu entry pointing at this executable.
+
+        Only when the setting is on: an installation that never asked for the
+        entry must not have the shell touched on its behalf, not even to
+        delete a key. Turning the setting off is what removes it, and that
+        path runs from the Settings window.
+
+        The entry stores an absolute path, so moving or reinstalling the app
+        leaves it calling a location nothing lives at any more. Re-writing it
+        here is how that repairs itself.
+        """
+        if not self._app_settings.shell_context_menu:
+            return
+        try:
+            shell_integration.sync(True, t("shell.menu.label"))
+        except OSError:
+            # A broken menu entry is not a reason to refuse to start.
+            log.exception("could not refresh the Explorer context-menu entry")
 
     def _show_startup_warning(self) -> None:
         warning = self._startup_warning
@@ -494,6 +525,21 @@ class HashToolApp(tk.Tk):
         # instead, and do not touch the disk again.
         self._settings["language"] = new_settings.language
         self._settings[KEY_VT_AUTOQUERY] = new_settings.virustotal_autoquery
+        # The Settings screen records the choice; acting on it is ours. Doing
+        # it here rather than in the view keeps the registry out of a widget,
+        # and means the toggle and the startup repair share one path.
+        try:
+            shell_integration.sync(
+                new_settings.shell_context_menu, t("shell.menu.label")
+            )
+        except OSError as exc:
+            log.exception("could not update the Explorer context-menu entry")
+            # A ticked box that quietly did nothing is worse than an error:
+            # the user would right-click and find no entry, with no clue why.
+            messagebox.showerror(
+                t("settings.save.failed_title"),
+                t("settings.shell.failed", error=exc),
+            )
         # Refresh the history limit on the live manager.
         self._history_manager = HistoryManager(
             history_path(), limit=new_settings.history_limit
@@ -1377,8 +1423,8 @@ class ReportTab(_BaseTab):
 # ======================================================================
 # Module entry point
 # ======================================================================
-def run() -> int:
-    app = HashToolApp()
+def run(initial_path: Optional[str] = None) -> int:
+    app = HashToolApp(initial_path=initial_path)
     app.mainloop()
     return 0
 

@@ -214,6 +214,20 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "trust.btn.export_html": "Save Report (HTML)",
         "trust.online.on": "Online check: On",
         "trust.online.off": "Online check: Off",
+        # Explorer context menu (written into the registry, so the shell
+        # itself draws this text — not Tk).
+        "shell.menu.label": "Verify this file",
+        # The hint rides on the checkbox rather than a label of its own: an
+        # extra ttk.Label in this frame reliably killed the Tk interpreter
+        # during the suite's language-switch test (the app itself was fine).
+        "settings.shell.menu": (
+            "Add “Verify this file” to the right-click menu "
+            "— Windows 11 keeps it under “Show more options” (Shift+F10)"
+        ),
+        "settings.shell.failed": "The right-click entry could not be changed: {error}",
+        "trust.missing_from_shell": (
+            "That file is no longer there — it may have been moved or deleted."
+        ),
         "trust.summary.idle": (
             "Choose a file, or drop it on this window — it is scanned right "
             "away and the verdict appears here."
@@ -929,6 +943,20 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "trust.btn.export_html": "Raporu Kaydet (HTML)",
         "trust.online.on": "Çevrimiçi kontrol: Açık",
         "trust.online.off": "Çevrimiçi kontrol: Kapalı",
+        # Explorer sağ tık menüsü (registry'ye yazılır; bu metni Tk değil
+        # kabuğun kendisi çizer).
+        "shell.menu.label": "Bu dosyayı doğrula",
+        # İpucu ayrı bir etiket değil, kutunun kendi metni: bu çerçeveye
+        # fazladan bir ttk.Label eklemek, takmın dil değiştirme testinde Tk
+        # yorumlayıcısını düzenli olarak öldürüyordu (uygulamanın kendisi sağlamdı).
+        "settings.shell.menu": (
+            "Sağ tık menüsüne “Bu dosyayı doğrula” ekle "
+            "— Windows 11'de “Diğer seçenekleri göster” altında çıkar (Shift+F10)"
+        ),
+        "settings.shell.failed": "Sağ tık kaydı değiştirilemedi: {error}",
+        "trust.missing_from_shell": (
+            "Bu dosya artık yok — taşınmış ya da silinmiş olabilir."
+        ),
         "trust.summary.idle": (
             "Bir dosya seçin ya da bu pencereye sürükleyin — hemen taranır, "
             "sonuç burada görünür."

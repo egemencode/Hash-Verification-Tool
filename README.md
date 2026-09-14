@@ -8,8 +8,9 @@ local fingerprint and shows a plain-language risk summary — without
 ever uploading the file. The original CLI and the **Gelişmiş** tools (now in
 the **Araçlar** menu) keep all of v1.1's hash / verify / report power.
 
-> **Status:** v2.1.2 — a single-page redesign with a modern Windows 11 look
-> (Sun Valley). 644 passing unit tests, 0 skipped.
+> **Status:** v2.2.0 — a single-page redesign with a modern Windows 11 look
+> (Sun Valley), and an Explorer right-click entry. 674 passing unit tests,
+> 0 skipped.
 >
 > **Geliştirici / By:** Torpil Studio — [torpilstudio.com](https://torpilstudio.com)
 
@@ -23,6 +24,14 @@ stays light because Windows draws it and ignores what Tk is told — a limitatio
 named here rather than cropped out.
 
 ---
+
+## What is new in v2.2.0
+
+- **Right-click a file → "Bu dosyayı doğrula".** Opens on that file and scans
+  it at once. Off by default; turn it on in *Araçlar → Ayarlar*. Registered
+  per-user (`HKCU`), so no administrator prompt and one key to remove.
+- On **Windows 11** it sits under *"Show more options"* (Shift+F10 opens that
+  menu directly); Windows 10 shows it in the first menu.
 
 ## What is new in v2.1.2
 

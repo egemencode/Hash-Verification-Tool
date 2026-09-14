@@ -47,6 +47,7 @@ KEY_VT_API_KEY_ENC = "virustotal_api_key_enc"   # DPAPI-protected token
 KEY_VT_AUTOQUERY = "virustotal_autoquery"
 KEY_HISTORY_LIMIT = "history_limit"
 KEY_LAST_FOLDER = "last_folder"
+KEY_SHELL_MENU = "shell_context_menu"
 
 # --- Validation bounds / defaults ---------------------------------------
 DEFAULT_LANGUAGE = "tr"
@@ -412,6 +413,9 @@ class AppSettings:
     virustotal_autoquery: bool = False
     history_limit: int = DEFAULT_HISTORY_LIMIT
     last_folder: str = ""
+    # Off by design, like the VirusTotal consent above: registering a verb
+    # writes to the shell, which is the user's system rather than ours.
+    shell_context_menu: bool = False
     # Informational (for the Settings UI); not persisted directly.
     secret_backend: str = "none"
     key_migrated: bool = False
@@ -473,6 +477,7 @@ class AppSettings:
             virustotal_autoquery=_valid_online_consent(raw.get(KEY_VT_AUTOQUERY)),
             history_limit=_valid_history_limit(raw.get(KEY_HISTORY_LIMIT, DEFAULT_HISTORY_LIMIT)),
             last_folder=str(raw.get(KEY_LAST_FOLDER, "") or ""),
+            shell_context_menu=raw.get(KEY_SHELL_MENU) is True,
             secret_backend=secret_store.backend_name(),
             secret_state=secret_state,
             _opaque_token=opaque_token,
@@ -537,6 +542,7 @@ class AppSettings:
         raw[KEY_VT_AUTOQUERY] = _valid_online_consent(self.virustotal_autoquery)
         raw[KEY_HISTORY_LIMIT] = _valid_history_limit(self.history_limit)
         raw[KEY_LAST_FOLDER] = self.last_folder
+        raw[KEY_SHELL_MENU] = bool(self.shell_context_menu)
 
         key = (self.virustotal_api_key or "").strip()
         if key:
